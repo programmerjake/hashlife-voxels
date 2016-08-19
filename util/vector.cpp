@@ -18,30 +18,4 @@
  * MA 02110-1301, USA.
  *
  */
-#include "block.h"
-#include "../logging/logging.h"
-
-#include <atomic>
-#include <cassert>
-#include <exception>
-
-namespace programmerjake
-{
-namespace voxels
-{
-namespace block
-{
-BlockKind BlockKind::allocate() noexcept
-{
-    static std::atomic<ValueType> lastBlockId(lastPredefinedBlockKind().value);
-    BlockKind retval{++lastBlockId};
-    if(retval == empty())
-    {
-        logging::log(logging::Level::Fatal, "BlockKind", "out of BlockKind values");
-        std::terminate();
-    }
-    return retval;
-}
-}
-}
-}
+#include "vector.h"

@@ -26,7 +26,10 @@
 #include "integer_sequence.h"
 #include "constexpr_assert.h"
 #include <type_traits>
-#include <tuple>
+#include <utility>
+#include <cmath>
+#include <cstdint>
+#include <functional>
 
 namespace programmerjake
 {
@@ -34,120 +37,278 @@ namespace voxels
 {
 namespace util
 {
-template <typename T, std::size_t N>
-struct Vector final
+struct ManhattanMetric
 {
-    static_assert(N >= 1, "");
+};
+
+static constexpr ManhattanMetric manhattanMetric{};
+
+struct MaximumMetric
+{
+};
+
+static constexpr MaximumMetric maximumMetric{};
+
+struct EuclideanMetric
+{
+};
+
+static constexpr EuclideanMetric euclideanMetric{};
+
+template <typename T>
+struct Vector3 final
+{
+    T x;
+    T y;
+    T z;
+    constexpr explicit Vector3(T v = T()) : x(v), y(v), z(v)
+    {
+    }
+    constexpr Vector3(T x, T y, T z) : x(x), y(y), z(z)
+    {
+    }
+    template <typename U>
+    constexpr explicit Vector3(const Vector3<U> &rt)
+        : x(static_cast<T>(rt.x)), y(static_cast<T>(rt.y)), z(static_cast<T>(rt.z))
+    {
+    }
+    constexpr T sum() const
+    {
+        return x + y + z;
+    }
 
 private:
-    T values[N];
-
-private:
-    typedef MakeIndexSequence<N> IndexSequenceType;
-    template <typename... Args>
-    static constexpr typename std::enable_if<sizeof...(Args) + 1 < N, Vector>::type fillHelper(
-        T v, Args... args)
+#ifdef __GNUC__
+    static constexpr long double elementwiseAbsHelper(long double v)
     {
-        return fillHelper(v, args..., v);
+        return __builtin_fabsl(v);
     }
-    template <typename... Args>
-    static constexpr typename std::enable_if<sizeof...(Args) == N, Vector>::type fillHelper(Args... args)
+    static constexpr double elementwiseAbsHelper(double v)
     {
-        return Vector(args...);
+        return __builtin_fabs(v);
     }
-    static constexpr bool areAllT()
+    static constexpr float elementwiseAbsHelper(float v)
     {
-        return true;
+        return __builtin_fabsf(v);
     }
-    template <typename Arg, typename... Args>
-    static constexpr bool areAllT(Arg, Args... args)
+#else
+    template <typename = typename std::enable_if<std::is_floating_point<T>::value>::type>
+    static T elementwiseAbsHelper(T v) noexcept
     {
-        return std::is_same<Arg, T>::value && areAllT(args...);
+        return std::fabs(v);
     }
-    template <std::size_t ...Indices>
-    constexpr Vector negHelper(IntegerSequence<std::size_t, Indices...>) const
+#endif
+    template <typename = typename std::enable_if<!std::is_floating_point<T>::value>::type>
+    static constexpr T elementwiseAbsHelper(T v, int = 0) noexcept
     {
-        return Vector(-values[Indices]...);
-    }
-    template <std::size_t ...Indices>
-    constexpr Vector bitwiseNotHelper(IntegerSequence<std::size_t, Indices...>) const
-    {
-        return Vector(~values[Indices]...);
-    }
-    template <std::size_t ...Indices>
-    constexpr Vector<bool, N> logicalNotHelper(IntegerSequence<std::size_t, Indices...>) const
-    {
-        return Vector<bool, N>(!values[Indices]...);
+        return v < 0 ? -v : v;
     }
 
 public:
-    constexpr explicit Vector(T v = T()) : Vector(fillHelper(v))
+    constexpr Vector3 elementwiseAbs() const
     {
+        return Vector3(elementwiseAbsHelper(x), elementwiseAbsHelper(y), elementwiseAbsHelper(z));
     }
-    template <typename... Args,
-              typename = typename std::enable_if<sizeof...(Args) == N && areAllT(Args()...)>::type>
-    constexpr Vector(Args... args)
-        : values{args...}
+    constexpr T normSquared(EuclideanMetric = EuclideanMetric()) const
     {
+        return x * x + y * y + z * z;
     }
-    constexpr const Vector &operator+() const
+    auto norm(EuclideanMetric = EuclideanMetric()) const noexcept -> decltype(std::sqrt(T()))
     {
-        return *this;
+        return std::sqrt(normSquared());
     }
-    constexpr Vector operator-() const
+    constexpr T norm(ManhattanMetric) const noexcept
     {
-        return negHelper(IndexSequenceType());
+        return elementwiseAbs().sum();
     }
-    constexpr Vector operator~() const
+    constexpr T norm(MaximumMetric) const noexcept
     {
-        return bitwiseNotHelper(IndexSequenceType());
+        return max();
     }
-    constexpr Vector<bool, N> operator!() const
+
+private:
+    template <typename U>
+    constexpr Vector3<decltype(T() / U())> normalizeOrZeroHelper(U normValue) const noexcept
     {
-        return logicalNotHelper(IndexSequenceType());
+        return normValue ? *this / normValue : Vector3<decltype(T() / U())>{};
     }
-    constexpr std::size_t size() const
+
+    template <typename U>
+    constexpr Vector3<decltype(T() / U())> normalizeNonzeroHelper(U normValue) const noexcept
     {
-        return N;
+        return (constexprAssert(normValue), *this / normValue);
     }
-    typedef const T *const_iterator;
-    typedef T *iterator;
-    constexpr const_iterator begin() const
+
+public:
+    template <typename Metric = EuclideanMetric>
+    constexpr auto normalizeOrZero(Metric = euclideanMetric) const noexcept
+        -> Vector3<decltype(T() / Vector3().norm(Metric()))>
     {
-        return values;
+        return normalizeOrZeroHelper(norm(Metric()));
     }
-    iterator begin()
+    template <typename Metric = EuclideanMetric>
+    constexpr auto normalizeNonzero(Metric = euclideanMetric) const noexcept
+        -> Vector3<decltype(T() / Vector3().norm(Metric()))>
     {
-        return values;
+        return normalizeNonzeroHelper(norm(Metric()));
     }
-    constexpr const_iterator cbegin() const
+    constexpr T product() const
     {
-        return values;
+        return x * y * z;
     }
-    constexpr const_iterator end() const
+    constexpr bool logicalAnd() const
     {
-        return values + N;
+        return x && y && z;
     }
-    iterator end()
+    constexpr bool logicalOr() const
     {
-        return values + N;
+        return x || y || z;
     }
-    constexpr const_iterator cend() const
+    constexpr bool bitwiseAnd() const
     {
-        return values + N;
+        return x & y & z;
     }
-    constexpr const T &operator[](std::size_t index) const
+    constexpr bool bitwiseOr() const
     {
-        return (constexprAssert(index < N), values[index]);
+        return x | y | z;
     }
-    T &operator[](std::size_t index)
+    constexpr bool bitwiseXor() const
     {
-        return (constexprAssert(index < N), values[index]);
+        return x ^ y ^ z;
     }
-#error finish
+    constexpr T max() const
+    {
+        return x < y ? y < z ? z : y : x < z ? z : x;
+    }
+    constexpr T min() const
+    {
+        return x < y ? x < z ? x : z : y < z ? y : z;
+    }
+    constexpr friend Vector3 max(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x < b.x ? b.x : a.x, a.y < b.y ? b.y : a.y, a.z < b.z ? b.z : a.z);
+    }
+    constexpr friend Vector3 min(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x < b.x ? a.x : b.x, a.y < b.y ? a.y : b.y, a.z < b.z ? a.z : b.z);
+    }
+    constexpr friend T dot(const Vector3 &a, const Vector3 &b)
+    {
+        return (a + b).sum();
+    }
+    constexpr friend Vector3 cross(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+    }
+    constexpr friend Vector3 operator+(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
+    }
+    constexpr friend Vector3 operator-(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
+    }
+    constexpr friend Vector3 operator*(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x * b.x, a.y * b.y, a.z * b.z);
+    }
+    constexpr friend Vector3 operator/(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x / b.x, a.y / b.y, a.z / b.z);
+    }
+    constexpr friend Vector3 operator%(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x % b.x, a.y % b.y, a.z % b.z);
+    }
+    constexpr friend Vector3 operator&(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x & b.x, a.y & b.y, a.z & b.z);
+    }
+    constexpr friend Vector3 operator|(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x | b.x, a.y | b.y, a.z | b.z);
+    }
+    constexpr friend Vector3 operator<<(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x << b.x, a.y << b.y, a.z << b.z);
+    }
+    constexpr friend Vector3 operator>>(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x >> b.x, a.y >> b.y, a.z >> b.z);
+    }
+    constexpr friend bool operator==(const Vector3 &a, const Vector3 &b)
+    {
+        return a.x == b.x && a.y == b.y && a.z == b.z;
+    }
+    constexpr friend bool operator!=(const Vector3 &a, const Vector3 &b)
+    {
+        return !(a == b);
+    }
+    Vector3 &operator+=(const Vector3 &rt)
+    {
+        return *this = *this + rt;
+    }
+    Vector3 &operator-=(const Vector3 &rt)
+    {
+        return *this = *this - rt;
+    }
+    Vector3 &operator*=(const Vector3 &rt)
+    {
+        return *this = *this * rt;
+    }
+    Vector3 &operator/=(const Vector3 &rt)
+    {
+        return *this = *this / rt;
+    }
+    Vector3 &operator%=(const Vector3 &rt)
+    {
+        return *this = *this % rt;
+    }
+    Vector3 &operator&=(const Vector3 &rt)
+    {
+        return *this = *this & rt;
+    }
+    Vector3 &operator|=(const Vector3 &rt)
+    {
+        return *this = *this | rt;
+    }
+    Vector3 &operator^=(const Vector3 &rt)
+    {
+        return *this = *this ^ rt;
+    }
+    Vector3 &operator<<=(const Vector3 &rt)
+    {
+        return *this = *this << rt;
+    }
+    Vector3 &operator>>=(const Vector3 &rt)
+    {
+        return *this = *this >> rt;
+    }
+    constexpr friend Vector3 operator^(const Vector3 &a, const Vector3 &b)
+    {
+        return Vector3(a.x ^ b.x, a.y ^ b.y, a.z ^ b.z);
+    }
 };
+
+typedef Vector3<float> Vector3F;
+typedef Vector3<std::int32_t> Vector3I32;
+typedef Vector3<std::uint32_t> Vector3U32;
+typedef Vector3<bool> Vector3B;
 }
 }
+}
+
+namespace std
+{
+template <typename T>
+struct hash<programmerjake::voxels::util::Vector3<T>>
+{
+    std::size_t operator()(const programmerjake::voxels::util::Vector3<T> &v) const
+        noexcept(noexcept(std::hash<T>()(std::declval<const T &>())))
+    {
+        return std::hash<T>()(v.x) * 279143UL + 22567UL * std::hash<T>()(v.y) + std::hash<T>()(v.z);
+    }
+};
 }
 
 #endif /* UTIL_VECTOR_H_ */

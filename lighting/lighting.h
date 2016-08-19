@@ -24,6 +24,7 @@
 #include "../world/dimension.h"
 #include "../util/constexpr_assert.h"
 #include "../graphics/color.h"
+#include "../util/vector.h"
 
 namespace programmerjake
 {
@@ -274,9 +275,10 @@ struct LightProperties final
 struct BlockLighting final
 {
     std::array<std::array<std::array<float, 2>, 2>, 2> lightValues;
-    constexpr ColorF eval(VectorF relativePosition) const
+    constexpr graphics::ColorF eval(util::Vector3F relativePosition) const
     {
-        return GrayscaleF(interpolate(
+        using util::interpolate;
+        return graphics::grayscaleF(interpolate(
             relativePosition.x,
             interpolate(
                 relativePosition.y,
@@ -289,36 +291,39 @@ struct BlockLighting final
     }
 
 private:
-    float evalVertex(const checked_array<checked_array<checked_array<float, 3>, 3>, 3> &blockValues,
-                     VectorI offset);
+    float evalVertex(const std::array<std::array<std::array<float, 3>, 3>, 3> &blockValues,
+                     util::Vector3I32 offset);
 
 public:
     constexpr BlockLighting() : lightValues{{{{{{0, 0}}, {{0, 0}}}}, {{{{0, 0}}, {{0, 0}}}}}}
     {
     }
     BlockLighting(
-        checked_array<checked_array<checked_array<std::pair<LightProperties, Lighting>, 3>, 3>, 3>
-            blocks,
+        std::array<std::array<std::array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
         WorldLightingProperties wlp);
 
 private:
-    static constexpr VectorF getLightVector()
+    static constexpr util::Vector3F getLightVector()
     {
-        return VectorF(0, 1, 0);
+        return util::Vector3F(0, 1, 0);
     }
     static constexpr float getNormalFactorHelper(float v)
     {
         return 0.5f + (v < 0 ? v * 0.25f : v * 0.5f);
     }
-    static constexpr float getNormalFactor(VectorF normal)
+    static constexpr float getNormalFactor(util::Vector3F normal)
     {
         return 0.4f + 0.6f * getNormalFactorHelper(dot(normal, getLightVector()));
     }
 
 public:
-    constexpr ColorF lightVertex(VectorF relativePosition, ColorF vertexColor, VectorF normal) const
+    constexpr graphics::ColorF lightVertex(util::Vector3F relativePosition,
+                                           graphics::ColorF vertexColor,
+                                           util::Vector3F normal) const
     {
-        return colorize(scaleF(eval(relativePosition), getNormalFactor(normal)), vertexColor);
+        return colorize(
+            colorize(graphics::grayscaleAF(getNormalFactor(normal), 1), eval(relativePosition)),
+            vertexColor);
     }
 };
 }

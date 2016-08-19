@@ -25,6 +25,8 @@
 #include <cstdint>
 #include <utility>
 #include <functional>
+#include <limits>
+#include "../lighting/lighting.h"
 
 namespace programmerjake
 {
@@ -32,51 +34,68 @@ namespace voxels
 {
 namespace block
 {
-template <typename = void>
-struct BlockKindType final
+struct BlockKind final
 {
     typedef std::uint32_t ValueType;
-    ValueType value = 0;
-    static const BlockKindType Empty;
-    static const BlockKindType Air;
-
-private:
-    static const BlockKindType LastPredefinedBlockKind;
-
-public:
+    ValueType value;
+    static constexpr BlockKind empty()
+    {
+        return {};
+    }
+    static constexpr BlockKind air()
+    {
+        return BlockKind{static_cast<ValueType>(empty().value + 1)};
+    }
+    static constexpr BlockKind lastPredefinedBlockKind()
+    {
+        return air();
+    }
+    constexpr BlockKind(ValueType value) : value(value)
+    {
+    }
+    constexpr BlockKind() : value(0)
+    {
+    }
     constexpr explicit operator bool() const noexcept
     {
         return value != 0;
     }
-    static BlockKindType allocate() noexcept;
-    friend constexpr bool operator==(BlockKindType a, BlockKindType b) noexcept
+    static BlockKind allocate() noexcept;
+    friend constexpr bool operator==(BlockKind a, BlockKind b) noexcept
     {
         return a.value == b.value;
     }
-    friend constexpr bool operator!=(BlockKindType a, BlockKindType b) noexcept
+    friend constexpr bool operator!=(BlockKind a, BlockKind b) noexcept
     {
         return a.value != b.value;
     }
 };
-
-template <typename T>
-constexpr BlockKindType<T> BlockKindType<T>::Empty{};
-
-template <typename T>
-constexpr BlockKindType<T> BlockKindType<T>::Air{Empty.value + 1};
-
-template <typename T>
-constexpr BlockKindType<T> BlockKindType<T>::LastPredefinedBlockKind{Air.value};
-
-extern template BlockKindType<> BlockKindType<void>::allocate() noexcept;
-
-typedef BlockKindType<> BlockKind;
 
 struct BlockKindLess
 {
     constexpr bool operator()(BlockKind a, BlockKind b) noexcept
     {
         return a.value < b.value;
+    }
+};
+
+struct Block final
+{
+    static constexpr int blockKindValueBitWidth =
+        std::numeric_limits<BlockKind::ValueType>::digits - 3 * lighting::Lighting::lightBitWidth;
+    lighting::Lighting::LightValueType directSkylight : lighting::Lighting::lightBitWidth;
+    lighting::Lighting::LightValueType indirectSkylight : lighting::Lighting::lightBitWidth;
+    lighting::Lighting::LightValueType indirectArtificalLight : lighting::Lighting::lightBitWidth;
+    BlockKind::ValueType blockKindValue : blockKindValueBitWidth;
+    constexpr Block(BlockKind blockKind, lighting::Lighting lighting)
+        : directSkylight(lighting.directSkylight),
+          indirectSkylight(lighting.indirectSkylight),
+          indirectArtificalLight(lighting.indirectArtificalLight),
+          blockKindValue(blockKind.value)
+    {
+    }
+    constexpr Block() : Block(BlockKind::empty(), lighting::Lighting())
+    {
     }
 };
 }
