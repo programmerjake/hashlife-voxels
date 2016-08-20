@@ -18,30 +18,33 @@
  * MA 02110-1301, USA.
  *
  */
-#include "block.h"
-#include "../logging/logging.h"
 
-#include <atomic>
-#include <cassert>
-#include <exception>
+#ifndef WORLD_HASHLIFE_NODE_H_
+#define WORLD_HASHLIFE_NODE_H_
+
+#include "../block/block.h"
+#include <array>
+#include <type_traits>
 
 namespace programmerjake
 {
 namespace voxels
 {
-namespace block
+namespace world
 {
-BlockKind BlockKind::allocate() noexcept
+struct HashlifeNode final
 {
-    static std::atomic<ValueType> lastBlockId(lastPredefinedBlockKind().value);
-    BlockKind retval{++lastBlockId};
-    if(retval.value >= 1UL << Block::blockKindValueBitWidth)
+    const std::uint8_t level;
+    typedef std::array<std::array<std::array<block::Block, 2>, 2>, 2> BlocksArray;
+    static_assert(std::is_trivially_destructible<BlocksArray>::value, "");
+    union
     {
-        logging::log(logging::Level::Fatal, "BlockKind", "out of BlockKind values");
-        std::terminate();
-    }
-    return retval;
+        BlocksArray blocks;
+    };
+#error finish
+};
 }
 }
 }
-}
+
+#endif /* WORLD_HASHLIFE_NODE_H_ */

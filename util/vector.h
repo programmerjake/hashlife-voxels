@@ -55,8 +55,38 @@ struct EuclideanMetric
 
 static constexpr EuclideanMetric euclideanMetric{};
 
+struct VectorImplementation final
+{
+    template <typename I, typename F>
+    constexpr typename std::enable_if<std::is_floating_point<F>::value && std::is_integral<I>::value
+                                          && !std::is_same<bool, I>::value,
+                                      I>::type
+        constexprFloor(F v)
+    {
+        return v < 0 ? static_cast<I>(-static_cast<I>(-v)) : static_cast<I>(v);
+    }
+    template <typename To,
+              typename From,
+              typename = typename std::enable_if<std::is_floating_point<From>::value
+                                                 && std::is_integral<To>::value
+                                                 && !std::is_same<bool, To>::value>::type>
+    constexpr To convert(From v)
+    {
+        return constexprFloor<To, From>(v);
+    }
+    template <typename To,
+              typename From,
+              typename = typename std::enable_if<!std::is_floating_point<From>::value
+                                                 || !std::is_integral<To>::value
+                                                 || std::is_same<bool, To>::value>::type>
+    constexpr To convert(From v, int = 0)
+    {
+        return static_cast<To>(v);
+    }
+};
+
 template <typename T>
-struct Vector3 final
+struct Vector3
 {
     T x;
     T y;
@@ -69,7 +99,9 @@ struct Vector3 final
     }
     template <typename U>
     constexpr explicit Vector3(const Vector3<U> &rt)
-        : x(static_cast<T>(rt.x)), y(static_cast<T>(rt.y)), z(static_cast<T>(rt.z))
+        : x(VectorImplementation::convert<T, U>(rt.x)),
+          y(VectorImplementation::convert<T, U>(rt.y)),
+          z(VectorImplementation::convert<T, U>(rt.z))
     {
     }
     constexpr T sum() const
@@ -92,14 +124,16 @@ private:
         return __builtin_fabsf(v);
     }
 #else
-    template <typename = typename std::enable_if<std::is_floating_point<T>::value>::type>
-    static T elementwiseAbsHelper(T v) noexcept
+    template <typename T2,
+              typename = typename std::enable_if<std::is_floating_point<T2>::value>::type>
+    static T2 elementwiseAbsHelper(T2 v) noexcept
     {
         return std::fabs(v);
     }
 #endif
-    template <typename = typename std::enable_if<!std::is_floating_point<T>::value>::type>
-    static constexpr T elementwiseAbsHelper(T v, int = 0) noexcept
+    template <typename T2,
+              typename = typename std::enable_if<!std::is_floating_point<T2>::value>::type>
+    static constexpr T2 elementwiseAbsHelper(T2 v, int = 0) noexcept
     {
         return v < 0 ? -v : v;
     }

@@ -132,7 +132,7 @@ public:
     }
     enum MakeDirectOnlyType
     {
-        MakeDirectOnly
+        makeDirectOnly
     };
     constexpr Lighting(LightValueType directSkylight,
                        LightValueType indirectSkylight,
@@ -149,7 +149,7 @@ public:
     }
     static constexpr Lighting makeDirectOnlyLighting()
     {
-        return Lighting(maxLight, 1, 1, MakeDirectOnly);
+        return Lighting(maxLight, 1, 1, makeDirectOnly);
     }
     static constexpr Lighting makeArtificialLighting(LightValueType indirectArtificalLight)
     {
@@ -164,14 +164,14 @@ public:
         return Lighting(constexpr_max(directSkylight, r.directSkylight),
                         constexpr_max(indirectSkylight, r.indirectSkylight),
                         constexpr_max(indirectArtificalLight, r.indirectArtificalLight),
-                        MakeDirectOnly);
+                        makeDirectOnly);
     }
     constexpr Lighting minimize(Lighting r) const
     {
         return Lighting(constexpr_min(directSkylight, r.directSkylight),
                         constexpr_min(indirectSkylight, r.indirectSkylight),
                         constexpr_min(indirectArtificalLight, r.indirectArtificalLight),
-                        MakeDirectOnly);
+                        makeDirectOnly);
     }
 
 private:
@@ -186,7 +186,7 @@ public:
         return Lighting(sum(directSkylight, r.directSkylight),
                         sum(indirectSkylight, r.indirectSkylight),
                         sum(indirectArtificalLight, r.indirectArtificalLight),
-                        MakeDirectOnly);
+                        makeDirectOnly);
     }
 
 private:

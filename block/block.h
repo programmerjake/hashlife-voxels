@@ -81,21 +81,63 @@ struct BlockKindLess
 
 struct Block final
 {
+    typedef std::uint32_t ValueType;
+    ValueType value;
     static constexpr int blockKindValueBitWidth =
-        std::numeric_limits<BlockKind::ValueType>::digits - 3 * lighting::Lighting::lightBitWidth;
-    lighting::Lighting::LightValueType directSkylight : lighting::Lighting::lightBitWidth;
-    lighting::Lighting::LightValueType indirectSkylight : lighting::Lighting::lightBitWidth;
-    lighting::Lighting::LightValueType indirectArtificalLight : lighting::Lighting::lightBitWidth;
-    BlockKind::ValueType blockKindValue : blockKindValueBitWidth;
+        std::numeric_limits<ValueType>::digits - 3 * lighting::Lighting::lightBitWidth;
+    static_assert(blockKindValueBitWidth >= 16, "");
     constexpr Block(BlockKind blockKind, lighting::Lighting lighting)
-        : directSkylight(lighting.directSkylight),
-          indirectSkylight(lighting.indirectSkylight),
-          indirectArtificalLight(lighting.indirectArtificalLight),
-          blockKindValue(blockKind.value)
+        : value(static_cast<ValueType>(lighting.directSkylight
+                                       % (1UL << lighting::Lighting::lightBitWidth))
+                | (static_cast<ValueType>(lighting.indirectSkylight
+                                          % (1UL << lighting::Lighting::lightBitWidth))
+                   << lighting::Lighting::lightBitWidth)
+                | (static_cast<ValueType>(lighting.indirectArtificalLight
+                                          % (1UL << lighting::Lighting::lightBitWidth))
+                   << lighting::Lighting::lightBitWidth * 2)
+                | (static_cast<ValueType>(blockKind.value % (1UL << blockKindValueBitWidth))
+                   << lighting::Lighting::lightBitWidth * 3))
+    {
+    }
+    constexpr explicit Block(ValueType value) : value(value)
     {
     }
     constexpr Block() : Block(BlockKind::empty(), lighting::Lighting())
     {
+    }
+    constexpr lighting::Lighting::LightValueType getDirectSkylight() const
+    {
+        return value % (1UL << lighting::Lighting::lightBitWidth);
+    }
+    constexpr lighting::Lighting::LightValueType getIndirectSkylight() const
+    {
+        return (value >> lighting::Lighting::lightBitWidth * 1)
+               % (1UL << lighting::Lighting::lightBitWidth);
+    }
+    constexpr lighting::Lighting::LightValueType getIndirectArtificalLight() const
+    {
+        return (value >> lighting::Lighting::lightBitWidth * 2)
+               % (1UL << lighting::Lighting::lightBitWidth);
+    }
+    constexpr lighting::Lighting getLighting() const
+    {
+        return lighting::Lighting(getDirectSkylight(),
+                                  getIndirectSkylight(),
+                                  getIndirectArtificalLight(),
+                                  lighting::Lighting::makeDirectOnly);
+    }
+    constexpr BlockKind getBlockKind() const
+    {
+        return BlockKind((value >> lighting::Lighting::lightBitWidth * 3)
+                         % (1UL << blockKindValueBitWidth));
+    }
+    friend constexpr bool operator==(Block a, Block b)
+    {
+        return a.value == b.value;
+    }
+    friend constexpr bool operator!=(Block a, Block b)
+    {
+        return a.value != b.value;
     }
 };
 }
@@ -110,6 +152,15 @@ struct hash<programmerjake::voxels::block::BlockKind>
     std::size_t operator()(programmerjake::voxels::block::BlockKind v) const
     {
         return std::hash<programmerjake::voxels::block::BlockKind::ValueType>()(v.value);
+    }
+};
+
+template <>
+struct hash<programmerjake::voxels::block::Block>
+{
+    std::size_t operator()(programmerjake::voxels::block::Block v) const
+    {
+        return std::hash<programmerjake::voxels::block::Block::ValueType>()(v.value);
     }
 };
 }

@@ -31,35 +31,29 @@ namespace voxels
 {
 namespace world
 {
-template <typename = void>
-struct DimensionType final
+struct Dimension final
 {
     typedef std::uint8_t ValueType;
     ValueType value = 0;
-    static const DimensionType Overworld;
-    static const DimensionType Nether;
-
-private:
-    static const DimensionType LastPredefinedDimension;
-
-public:
-    static DimensionType allocate(float zeroBrightnessLevel) noexcept;
+    constexpr Dimension() = default;
+    constexpr explicit Dimension(ValueType value) : value(value)
+    {
+    }
+    static constexpr Dimension overworld()
+    {
+        return Dimension();
+    }
+    static constexpr Dimension nether()
+    {
+        return Dimension(overworld().value + 1);
+    }
+    static constexpr Dimension lastPredefinedDimension()
+    {
+        return nether();
+    }
+    static Dimension allocate(float zeroBrightnessLevel) noexcept;
     float getZeroBrightnessLevel() const noexcept;
 };
-
-template <typename T>
-constexpr DimensionType<T> DimensionType<T>::Overworld{};
-
-template <typename T>
-constexpr DimensionType<T> DimensionType<T>::Nether{Overworld.value + 1};
-
-template <typename T>
-constexpr DimensionType<T> DimensionType<T>::LastPredefinedDimension{Nether.value};
-
-typedef DimensionType<> Dimension;
-
-extern template DimensionType<void> DimensionType<void>::allocate(float zeroBrightnessLevel) noexcept;
-extern template float DimensionType<void>::getZeroBrightnessLevel() const noexcept;
 }
 }
 }
