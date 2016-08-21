@@ -25,52 +25,7 @@
 #include "../util/constexpr_assert.h"
 #include "../graphics/color.h"
 #include "../util/vector.h"
-
-namespace programmerjake
-{
-namespace voxels
-{
-namespace lighting
-{
-struct WorldLightingProperties final
-{
-    float skyBrightness = 1, minBrightness = 0;
-    constexpr WorldLightingProperties()
-    {
-    }
-    constexpr WorldLightingProperties(float skyBrightness, float minBrightness)
-        : skyBrightness(skyBrightness), minBrightness(minBrightness)
-    {
-    }
-    WorldLightingProperties(float skyBrightness, world::Dimension d)
-        : skyBrightness(skyBrightness), minBrightness(d.getZeroBrightnessLevel())
-    {
-    }
-    bool operator==(const WorldLightingProperties &rt) const
-    {
-        return skyBrightness == rt.skyBrightness && minBrightness == rt.minBrightness;
-    }
-    bool operator!=(const WorldLightingProperties &rt) const
-    {
-        return !operator==(rt);
-    }
-};
-}
-}
-}
-
-namespace std
-{
-template <>
-struct hash<programmerjake::voxels::lighting::WorldLightingProperties>
-{
-    hash<float> hasher;
-    size_t operator()(programmerjake::voxels::lighting::WorldLightingProperties wlp) const
-    {
-        return hasher(wlp.skyBrightness) + 3 * hasher(wlp.minBrightness);
-    }
-};
-}
+#include "../util/interpolate.h"
 
 namespace programmerjake
 {
@@ -92,6 +47,33 @@ struct Lighting final
     {
         return constexprAssert(v >= 0 && v <= maxLight), v;
     }
+    struct GlobalProperties final
+    {
+        LightValueType skylight;
+        world::Dimension dimension;
+        constexpr GlobalProperties() : skylight(maxLight)
+        {
+        }
+        constexpr explicit GlobalProperties(LightValueType skylight, world::Dimension dimension)
+            : skylight(skylight), dimension(dimension)
+        {
+        }
+        constexpr bool operator==(const GlobalProperties &rt) const
+        {
+            return skylight == rt.skylight && dimension == rt.dimension;
+        }
+        constexpr bool operator!=(const GlobalProperties &rt) const
+        {
+            return !operator==(rt);
+        }
+        std::size_t hash() const
+        {
+            return std::hash<LightValueType>()(skylight)
+                   + 9 * std::hash<world::Dimension>()(dimension);
+        }
+    };
+
+public:
     LightValueType directSkylight;
     LightValueType indirectSkylight;
     LightValueType indirectArtificalLight;
@@ -109,15 +91,23 @@ private:
     }
 
 public:
-    constexpr float toFloat(float skyBrightness, float minBrightness) const
+    constexpr LightValueType getBrightnessLevel(LightValueType skylight) const
     {
-        return constexpr_max<float>(toFloat(indirectSkylight) - 1.0f + skyBrightness,
-                                    toFloat(indirectArtificalLight)) * (1 - minBrightness)
-               + minBrightness;
+        return constexpr_max<int>(static_cast<int>(indirectSkylight) - maxLight + skylight,
+                                  indirectArtificalLight);
     }
-    float toFloat(WorldLightingProperties wlp) const
+    constexpr LightValueType getBrightnessLevel(const GlobalProperties &globalProperties) const
     {
-        return toFloat(wlp.skyBrightness, wlp.minBrightness);
+        return getBrightnessLevel(globalProperties.skylight);
+    }
+    constexpr float toFloat(LightValueType skylight, float zeroBrightnessLevel) const
+    {
+        return toFloat(getBrightnessLevel(skylight)) * (1 - zeroBrightnessLevel)
+               + zeroBrightnessLevel;
+    }
+    float toFloat(const GlobalProperties &globalProperties) const noexcept
+    {
+        return toFloat(globalProperties.skylight, globalProperties.dimension.getZeroBrightnessLevel());
     }
     constexpr Lighting() : directSkylight(0), indirectSkylight(0), indirectArtificalLight(0)
     {
@@ -300,7 +290,7 @@ public:
     }
     BlockLighting(
         std::array<std::array<std::array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
-        WorldLightingProperties wlp);
+        const Lighting::GlobalProperties &globalProperties);
 
 private:
     static constexpr util::Vector3F getLightVector()
@@ -328,6 +318,18 @@ public:
 };
 }
 }
+}
+
+namespace std
+{
+template <>
+struct hash<programmerjake::voxels::lighting::Lighting::GlobalProperties>
+{
+    size_t operator()(const programmerjake::voxels::lighting::Lighting::GlobalProperties &globalProperties) const
+    {
+        return globalProperties.hash();
+    }
+};
 }
 
 #endif // LIGHTING_LIGHTING_H_

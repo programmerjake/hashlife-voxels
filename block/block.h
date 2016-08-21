@@ -102,7 +102,7 @@ struct Block final
     constexpr explicit Block(ValueType value) : value(value)
     {
     }
-    constexpr Block() : Block(BlockKind::empty(), lighting::Lighting())
+    constexpr Block() : Block(BlockKind::empty(), lighting::Lighting::makeSkyLighting())
     {
     }
     constexpr lighting::Lighting::LightValueType getDirectSkylight() const
