@@ -30,6 +30,7 @@
 #include <array>
 #include <type_traits>
 #include <list>
+#include <cstdint>
 
 namespace programmerjake
 {
@@ -61,8 +62,9 @@ private:
             constexpr bool isInCollectPendingNodeQueue(
                 HashlifeNodeBase *collectPendingNodeQueueHead)
             {
-                return collectPendingNodeQueueHead == this
-                       || collectPendingNodeQueuePrev != nullptr;
+                return collectPendingNodeQueueHead != nullptr
+                       && (&collectPendingNodeQueueHead->garbageCollectState.stateUnmarked == this
+                           || collectPendingNodeQueuePrev != nullptr);
             }
             void removeFromCollectPendingNodeQueue(
                 HashlifeNodeBase *&collectPendingNodeQueueHead,
@@ -112,6 +114,7 @@ private:
     GarbageCollectState garbageCollectState;
 
 public:
+    static constexpr std::int32_t levelSize = 2;
     typedef std::uint8_t LevelType;
     static constexpr LevelType maxLevel = 32 - 2;
     const LevelType level;
@@ -125,15 +128,23 @@ public:
     }
     constexpr std::uint32_t getSize() const
     {
+        static_assert(levelSize == 2, "");
         return 2UL << level;
     }
     constexpr std::int32_t getHalfSize() const
     {
+        static_assert(levelSize == 2, "");
         return 1L << level;
     }
     constexpr std::int32_t getQuarterSize() const
     {
-        return (constexprAssert(level > 0), 1L << (level - 1));
+        static_assert(levelSize == 2, "");
+        return (constexprAssert(level >= 1), 1L << (level - 1));
+    }
+    constexpr std::int32_t getEighthSize() const
+    {
+        static_assert(levelSize == 2, "");
+        return (constexprAssert(level >= 2), 1L << (level - 2));
     }
     constexpr bool isPositionInside(std::int32_t position) const
     {
@@ -189,28 +200,37 @@ public:
         static constexpr std::uint32_t getStepSizeInGenerations(LevelType level)
         {
             return (constexprAssert(level >= 1),
-                    level - 1 > block::BlockStepGlobalState::log2OfStepSizeInGenerations ?
+                    static_cast<LevelType>(level - 1)
+                            > block::BlockStepGlobalState::log2OfStepSizeInGenerations ?
                         block::BlockStepGlobalState::stepSizeInGenerations :
                         1UL << (level - 1));
         }
         HashlifeNodeBase *node;
         block::BlockStepGlobalState globalState;
-        block::BlockStepExtraActions actions;
+        typedef std::array<std::array<std::array<block::BlockStepExtraActions, levelSize>,
+                                      levelSize>,
+                           levelSize> ActionsArray;
+        ActionsArray actions;
         constexpr FutureState() : node(nullptr), globalState(), actions()
         {
         }
         FutureState(HashlifeNodeBase *node,
                     block::BlockStepGlobalState globalState,
-                    block::BlockStepExtraActions actions)
+                    ActionsArray actions)
             : node(node), globalState(std::move(globalState)), actions(std::move(actions))
         {
         }
+        explicit FutureState(block::BlockStepGlobalState globalState)
+            : node(nullptr), globalState(std::move(globalState)), actions()
+        {
+        }
     };
-    typedef std::array<std::array<std::array<HashlifeNodeBase *, 2>, 2>, 2> ChildNodesArray;
+    typedef std::array<std::array<std::array<HashlifeNodeBase *, levelSize>, levelSize>, levelSize>
+        ChildNodesArray;
 
 public:
     const ChildNodesArray childNodes;
-    constexpr static HashlifeNodeBase *getChildNode(util::Vector3U32 index) const
+    HashlifeNodeBase *getChildNode(util::Vector3U32 index) const
     {
         return childNodes[index.x][index.y][index.z];
     }
@@ -236,6 +256,7 @@ public:
           },
           futureState()
     {
+        static_assert(levelSize == 2, "");
     }
     HashlifeNonleafNode(HashlifeNodeBase *nxnynz,
                         HashlifeNodeBase *nxnypz,
@@ -260,6 +281,7 @@ public:
           futureState((constexprAssert(futureState.node && futureState.node->level + 1 == level),
                        std::move(futureState)))
     {
+        static_assert(levelSize == 2, "");
     }
     constexpr explicit HashlifeNonleafNode(const ChildNodesArray &childNodes)
         : HashlifeNonleafNode(childNodes[0][0][0],
@@ -271,6 +293,7 @@ public:
                               childNodes[1][1][0],
                               childNodes[1][1][1])
     {
+        static_assert(levelSize == 2, "");
     }
     HashlifeNonleafNode(const ChildNodesArray &childNodes, FutureState futureState)
         : HashlifeNonleafNode(childNodes[0][0][0],
@@ -283,12 +306,13 @@ public:
                               childNodes[1][1][1],
                               std::move(futureState))
     {
+        static_assert(levelSize == 2, "");
     }
-    constexpr bool operator!=(const HashlifeNonleafNode &rt) const
+    bool operator!=(const HashlifeNonleafNode &rt) const
     {
         return !operator==(rt);
     }
-    constexpr bool operator==(const HashlifeNonleafNode &rt) const
+    bool operator==(const HashlifeNonleafNode &rt) const
     {
         return (constexprAssert(!isLeaf() && !rt.isLeaf()),
                 level == rt.level && childNodes == rt.childNodes);
@@ -309,7 +333,8 @@ public:
 class HashlifeLeafNode final : public HashlifeNodeBase
 {
 public:
-    typedef std::array<std::array<std::array<block::Block, 2>, 2>, 2> BlocksArray;
+    typedef std::array<std::array<std::array<block::Block, levelSize>, levelSize>, levelSize>
+        BlocksArray;
     const BlocksArray blocks;
     constexpr block::Block getBlock(util::Vector3U32 index) const
     {
@@ -328,15 +353,16 @@ public:
               nxnynz, nxnypz, nxpynz, nxpypz, pxnynz, pxnypz, pxpynz, pxpypz,
           }
     {
+        static_assert(levelSize == 2, "");
     }
     constexpr HashlifeLeafNode(const BlocksArray &blocks) : HashlifeNodeBase(0), blocks(blocks)
     {
     }
-    constexpr bool operator!=(const HashlifeLeafNode &rt) const
+    bool operator!=(const HashlifeLeafNode &rt) const
     {
         return !operator==(rt);
     }
-    constexpr bool operator==(const HashlifeLeafNode &rt) const
+    bool operator==(const HashlifeLeafNode &rt) const
     {
         return (constexprAssert(isLeaf() && rt.isLeaf()), blocks == rt.blocks);
     }
@@ -409,6 +435,7 @@ inline void HashlifeNodeBase::free(HashlifeNodeBase *node) noexcept
 
 namespace std
 {
+template <>
 struct hash<programmerjake::voxels::world::HashlifeNodeBase>
 {
     std::size_t operator()(const programmerjake::voxels::world::HashlifeNodeBase &v) const

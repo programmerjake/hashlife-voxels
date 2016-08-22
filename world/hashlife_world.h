@@ -67,18 +67,30 @@ public:
     private:
         HashlifeNodeBase *rootNode;
         std::shared_ptr<const HashlifeWorld> world;
+
+    public:
         Snapshot(HashlifeNodeBase *rootNode,
                  std::shared_ptr<const HashlifeWorld> world,
                  PrivateAccessTag)
             : rootNode(rootNode), world(std::move(world))
         {
         }
-
-    public:
         ~Snapshot() = default;
         block::Block get(util::Vector3I32 position) const noexcept
         {
             return getBlock(rootNode, position);
+        }
+        util::Vector3I32 minPosition() const noexcept
+        {
+            return util::Vector3I32(-rootNode->getHalfSize());
+        }
+        util::Vector3I32 endPosition() const noexcept
+        {
+            return util::Vector3I32(rootNode->getHalfSize());
+        }
+        util::Vector3I32 maxPosition() const noexcept
+        {
+            return util::Vector3I32(rootNode->getHalfSize() - 1);
         }
     };
 
@@ -87,15 +99,13 @@ private:
     mutable std::list<std::weak_ptr<Snapshot>> snapshots;
     HashlifeNodeBase *rootNode;
 
-private:
+public:
     explicit HashlifeWorld(PrivateAccessTag)
         : garbageCollectedHashtable(),
           snapshots(),
           rootNode(garbageCollectedHashtable.getCanonicalEmptyNode(1))
     {
     }
-
-public:
     void collectGarbage(std::size_t garbageCollectTargetNodeCount =
                             HashlifeGarbageCollectedHashtable::defaultGarbageCollectTargetNodeCount)
     {
@@ -153,9 +163,7 @@ private:
                                                                       emptyNode,
                                                                       emptyNode,
                                                                       emptyNode};
-                    static_assert(HashlifeNonleafNode::ChildNodesArray().size() == 2, "");
-                    static_assert(HashlifeNonleafNode::ChildNodesArray()[0].size() == 2, "");
-                    static_assert(HashlifeNonleafNode::ChildNodesArray()[0][0].size() == 2, "");
+                    static_assert(HashlifeNodeBase::levelSize == 2, "");
                     newChildNode[2 - x - 1][2 - y - 1][2 - z - 1] =
                         static_cast<HashlifeNonleafNode *>(rootNode)->childNodes[x][y][z];
                     newRootNode[x][y][z] =
@@ -172,8 +180,7 @@ private:
         auto node = static_cast<HashlifeNonleafNode *>(nodeIn);
         if(node->futureState.node && node->futureState.globalState == stepGlobalState)
             return node->futureState;
-        node->futureState = HashlifeNonleafNode::FutureState(
-            nullptr, stepGlobalState, block::BlockStepExtraActions());
+        node->futureState = HashlifeNonleafNode::FutureState(stepGlobalState);
         if(node->level == 1)
         {
             HashlifeLeafNode::BlocksArray futureNode;
@@ -184,9 +191,7 @@ private:
                     for(std::size_t z = 0; z < futureNode[x][y].size(); z++)
                     {
                         block::BlockStepInput blockStepInput;
-                        static_assert(HashlifeNonleafNode::ChildNodesArray().size() == 2, "");
-                        static_assert(HashlifeNonleafNode::ChildNodesArray()[0].size() == 2, "");
-                        static_assert(HashlifeNonleafNode::ChildNodesArray()[0][0].size() == 2, "");
+                        static_assert(HashlifeNodeBase::levelSize == 2, "");
                         util::Vector3I32 blockStepInputOrigin(x - 2, y - 2, z - 2);
                         auto blockStepInputCenter = blockStepInputOrigin + util::Vector3I32(1);
                         for(std::size_t x2 = 0; x2 < blockStepInput.blocks.size(); x2++)
@@ -204,7 +209,7 @@ private:
                         auto stepResult =
                             block::BlockDescriptor::step(blockStepInput, stepGlobalState);
                         futureNode[x][y][z] = stepResult.block;
-                        node->futureState.actions +=
+                        node->futureState.actions[x][y][z] +=
                             std::move(stepResult.extraActions).addOffset(blockStepInputCenter);
                     }
                 }
@@ -212,20 +217,237 @@ private:
             node->futureState.node =
                 garbageCollectedHashtable.findOrAddNode(HashlifeLeafNode(futureNode));
         }
-        else if(HashlifeNonleafNode::FutureState::getStepSizeInGenerations(node->level - 1)
-                == block::BlockStepGlobalState::stepSizeInGenerations)
-        {
-#error finish
-        }
         else
         {
-#error finish
+            static_assert(HashlifeNodeBase::levelSize == 2, "");
+            static constexpr std::int32_t intermediateSize = HashlifeNodeBase::levelSize * 2 - 1;
+            std::array<std::array<std::array<HashlifeNodeBase *, intermediateSize>,
+                                  intermediateSize>,
+                       intermediateSize> intermediate;
+            for(util::Vector3I32 chunkPos(0); chunkPos.x < intermediateSize; chunkPos.x++)
+            {
+                for(chunkPos.y = 0; chunkPos.y < intermediateSize; chunkPos.y++)
+                {
+                    for(chunkPos.z = 0; chunkPos.z < intermediateSize; chunkPos.z++)
+                    {
+                        HashlifeNonleafNode::ChildNodesArray input;
+                        for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
+                            position.x++)
+                        {
+                            for(position.y = 0; position.y < HashlifeNodeBase::levelSize;
+                                position.y++)
+                            {
+                                for(position.z = 0; position.z < HashlifeNodeBase::levelSize;
+                                    position.z++)
+                                {
+                                    auto inputPosition = chunkPos + position;
+                                    auto index1 = inputPosition
+                                                  / util::Vector3I32(HashlifeNodeBase::levelSize);
+                                    auto index2 = inputPosition
+                                                  % util::Vector3I32(HashlifeNodeBase::levelSize);
+                                    auto childNode = node->childNodes[index1.x][index1.y][index1.z];
+                                    constexprAssert(!childNode->isLeaf());
+                                    input[position.x][position.y][position.z] =
+                                        static_cast<HashlifeNonleafNode *>(childNode)
+                                            ->childNodes[index2.x][index2.y][index2.z];
+                                }
+                            }
+                        }
+                        auto &result = getFilledFutureState(
+                            garbageCollectedHashtable.findOrAddNode(HashlifeNonleafNode(input)),
+                            stepGlobalState);
+                        for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
+                            position.x++)
+                        {
+                            for(position.y = 0; position.y < HashlifeNodeBase::levelSize;
+                                position.y++)
+                            {
+                                for(position.z = 0; position.z < HashlifeNodeBase::levelSize;
+                                    position.z++)
+                                {
+                                    static_assert(HashlifeNodeBase::levelSize == 2, "");
+                                    auto offsetInEighths =
+                                        (chunkPos - util::Vector3I32(1))
+                                        * util::Vector3I32(HashlifeNodeBase::levelSize);
+                                    auto outputPosition =
+                                        (position + offsetInEighths + util::Vector3I32(1))
+                                        / util::Vector3I32(HashlifeNodeBase::levelSize);
+                                    if(outputPosition.x < 0
+                                       || outputPosition.x >= HashlifeNodeBase::levelSize
+                                       || outputPosition.y < 0
+                                       || outputPosition.y >= HashlifeNodeBase::levelSize
+                                       || outputPosition.z < 0
+                                       || outputPosition.z >= HashlifeNodeBase::levelSize)
+                                        continue;
+                                    node->futureState.actions[outputPosition.x][outputPosition.y]
+                                                             [outputPosition.z] +=
+                                        block::BlockStepExtraActions(
+                                            result.actions[position.x][position.y][position.z])
+                                            .addOffset(offsetInEighths
+                                                       * util::Vector3I32(node->getEighthSize()));
+                                }
+                            }
+                        }
+                        intermediate[chunkPos.x][chunkPos.y][chunkPos.z] = result.node;
+                    }
+                }
+            }
+            HashlifeNonleafNode::ChildNodesArray output;
+            if(HashlifeNonleafNode::FutureState::getStepSizeInGenerations(node->level - 1)
+               == block::BlockStepGlobalState::stepSizeInGenerations)
+            {
+                for(util::Vector3I32 chunkPos(0); chunkPos.x < HashlifeNodeBase::levelSize;
+                    chunkPos.x++)
+                {
+                    for(chunkPos.y = 0; chunkPos.y < HashlifeNodeBase::levelSize; chunkPos.y++)
+                    {
+                        for(chunkPos.z = 0; chunkPos.z < HashlifeNodeBase::levelSize; chunkPos.z++)
+                        {
+                            if(node->getEighthSize() == 1)
+                            {
+                                HashlifeLeafNode::BlocksArray blocks;
+                                for(util::Vector3I32 position(0);
+                                    position.x < HashlifeNodeBase::levelSize;
+                                    position.x++)
+                                {
+                                    for(position.y = 0; position.y < HashlifeNodeBase::levelSize;
+                                        position.y++)
+                                    {
+                                        for(position.z = 0;
+                                            position.z < HashlifeNodeBase::levelSize;
+                                            position.z++)
+                                        {
+                                            auto inputPosition =
+                                                chunkPos
+                                                    * util::Vector3I32(HashlifeNodeBase::levelSize)
+                                                + position + util::Vector3I32(1);
+                                            auto index1 =
+                                                inputPosition
+                                                / util::Vector3I32(HashlifeNodeBase::levelSize);
+                                            auto index2 =
+                                                inputPosition
+                                                % util::Vector3I32(HashlifeNodeBase::levelSize);
+                                            auto childNode =
+                                                intermediate[index1.x][index1.y][index1.z];
+                                            constexprAssert(childNode->isLeaf());
+                                            blocks[position.x][position.y][position.z] =
+                                                static_cast<HashlifeLeafNode *>(childNode)
+                                                    ->blocks[index2.x][index2.y][index2.z];
+                                        }
+                                    }
+                                }
+                                output[chunkPos.x][chunkPos.y][chunkPos.z] =
+                                    garbageCollectedHashtable.findOrAddNode(
+                                        HashlifeLeafNode(blocks));
+                            }
+                            else
+                            {
+                                HashlifeNonleafNode::ChildNodesArray childNodes;
+                                for(util::Vector3I32 position(0);
+                                    position.x < HashlifeNodeBase::levelSize;
+                                    position.x++)
+                                {
+                                    for(position.y = 0; position.y < HashlifeNodeBase::levelSize;
+                                        position.y++)
+                                    {
+                                        for(position.z = 0;
+                                            position.z < HashlifeNodeBase::levelSize;
+                                            position.z++)
+                                        {
+                                            auto inputPosition =
+                                                chunkPos
+                                                    * util::Vector3I32(HashlifeNodeBase::levelSize)
+                                                + position + util::Vector3I32(1);
+                                            auto index1 =
+                                                inputPosition
+                                                / util::Vector3I32(HashlifeNodeBase::levelSize);
+                                            auto index2 =
+                                                inputPosition
+                                                % util::Vector3I32(HashlifeNodeBase::levelSize);
+                                            auto childNode =
+                                                intermediate[index1.x][index1.y][index1.z];
+                                            constexprAssert(!childNode->isLeaf());
+                                            childNodes[position.x][position.y][position.z] =
+                                                static_cast<HashlifeNonleafNode *>(childNode)
+                                                    ->childNodes[index2.x][index2.y][index2.z];
+                                        }
+                                    }
+                                }
+                                output[chunkPos.x][chunkPos.y][chunkPos.z] =
+                                    garbageCollectedHashtable.findOrAddNode(
+                                        HashlifeNonleafNode(childNodes));
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                for(util::Vector3I32 chunkPos(0); chunkPos.x < HashlifeNodeBase::levelSize;
+                    chunkPos.x++)
+                {
+                    for(chunkPos.y = 0; chunkPos.y < HashlifeNodeBase::levelSize; chunkPos.y++)
+                    {
+                        for(chunkPos.z = 0; chunkPos.z < HashlifeNodeBase::levelSize; chunkPos.z++)
+                        {
+                            HashlifeNonleafNode::ChildNodesArray input;
+                            for(util::Vector3I32 position(0);
+                                position.x < HashlifeNodeBase::levelSize;
+                                position.x++)
+                            {
+                                for(position.y = 0; position.y < HashlifeNodeBase::levelSize;
+                                    position.y++)
+                                {
+                                    for(position.z = 0; position.z < HashlifeNodeBase::levelSize;
+                                        position.z++)
+                                    {
+                                        auto inputPosition = chunkPos + position;
+                                        input[position.x][position.y][position.z] =
+                                            intermediate[inputPosition.x][inputPosition
+                                                                              .y][inputPosition.z];
+                                    }
+                                }
+                            }
+                            auto &result = getFilledFutureState(
+                                garbageCollectedHashtable.findOrAddNode(HashlifeNonleafNode(input)),
+                                stepGlobalState);
+                            for(util::Vector3I32 position(0);
+                                position.x < HashlifeNodeBase::levelSize;
+                                position.x++)
+                            {
+                                for(position.y = 0; position.y < HashlifeNodeBase::levelSize;
+                                    position.y++)
+                                {
+                                    for(position.z = 0; position.z < HashlifeNodeBase::levelSize;
+                                        position.z++)
+                                    {
+                                        static_assert(HashlifeNodeBase::levelSize == 2, "");
+                                        auto offsetInEighths =
+                                            chunkPos * util::Vector3I32(HashlifeNodeBase::levelSize)
+                                            - util::Vector3I32(1);
+                                        node->futureState
+                                            .actions[chunkPos.x][chunkPos.y][chunkPos.z] +=
+                                            block::BlockStepExtraActions(
+                                                result.actions[position.x][position.y][position.z])
+                                                .addOffset(
+                                                    offsetInEighths
+                                                    * util::Vector3I32(node->getEighthSize()));
+                                    }
+                                }
+                            }
+                            output[chunkPos.x][chunkPos.y][chunkPos.z] = result.node;
+                        }
+                    }
+                }
+            }
+            node->futureState.node =
+                garbageCollectedHashtable.findOrAddNode(HashlifeNonleafNode(output));
         }
         return node->futureState;
     }
 
 public:
-    util::Optional<std::list<block::BlockStepExtraAction>> stepAndCollectGarbage(
+    block::BlockStepExtraActions stepAndCollectGarbage(
         const block::BlockStepGlobalState &stepGlobalState,
         std::size_t garbageCollectTargetNodeCount =
             HashlifeGarbageCollectedHashtable::defaultGarbageCollectTargetNodeCount)
@@ -233,8 +455,7 @@ public:
         collectGarbage(garbageCollectTargetNodeCount);
         return step(stepGlobalState);
     }
-    util::Optional<std::list<block::BlockStepExtraAction>> step(
-        const block::BlockStepGlobalState &stepGlobalState)
+    block::BlockStepExtraActions step(const block::BlockStepGlobalState &stepGlobalState)
     {
         do
         {
@@ -245,7 +466,137 @@ public:
         constexprAssert(futureState.node != nullptr);
         constexprAssert(futureState.globalState == stepGlobalState);
         rootNode = futureState.node;
-        return futureState.actions;
+        block::BlockStepExtraActions actions;
+        for(auto &i : futureState.actions)
+        {
+            for(auto &j : i)
+            {
+                for(auto &v : j)
+                {
+                    actions += v;
+                }
+            }
+        }
+        return actions;
+    }
+
+private:
+    template <typename BlocksArray>
+    HashlifeNodeBase *setBlocks(HashlifeNodeBase *node,
+                                BlocksArray &&blocksArray,
+                                util::Vector3I32 targetPosition,
+                                util::Vector3I32 sourcePosition,
+                                util::Vector3I32 size)
+    {
+        constexprAssert(size.min() >= 0);
+        constexprAssert(node->isPositionInside(targetPosition));
+        if(size.min() == 0)
+            return node;
+        constexprAssert(node->isPositionInside(targetPosition + size - util::Vector3I32(1)));
+        if(node->isLeaf())
+        {
+            HashlifeLeafNode::BlocksArray blocks;
+            for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
+                position.x++)
+            {
+                for(position.y = 0; position.y < HashlifeNodeBase::levelSize; position.y++)
+                {
+                    for(position.z = 0; position.z < HashlifeNodeBase::levelSize; position.z++)
+                    {
+                        static_assert(HashlifeNodeBase::levelSize % 2 == 0, "");
+                        auto inputPosition =
+                            position - util::Vector3I32(HashlifeNodeBase::levelSize / 2);
+                        if((inputPosition - targetPosition).min() < 0
+                           || (targetPosition + size - inputPosition).max() < 0)
+                        {
+                            blocks[position.x][position.y][position.z] =
+                                static_cast<HashlifeLeafNode *>(node)
+                                    ->blocks[position.x][position.y][position.z];
+                        }
+                        else
+                        {
+                            const auto blocksArrayPosition =
+                                inputPosition + sourcePosition - targetPosition;
+                            blocks[position.x][position.y][position.z] = std::forward<BlocksArray>(
+                                blocksArray)[blocksArrayPosition.x][blocksArrayPosition
+                                                                        .y][blocksArrayPosition.z];
+                        }
+                    }
+                }
+            }
+            return garbageCollectedHashtable.findOrAddNode(HashlifeLeafNode(blocks));
+        }
+        else
+        {
+            HashlifeNonleafNode::ChildNodesArray childNodes;
+            for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
+                position.x++)
+            {
+                for(position.y = 0; position.y < HashlifeNodeBase::levelSize; position.y++)
+                {
+                    for(position.z = 0; position.z < HashlifeNodeBase::levelSize; position.z++)
+                    {
+                        static_assert(HashlifeNodeBase::levelSize % 2 == 0, "");
+                        auto minInputPosition =
+                            (position - util::Vector3I32(HashlifeNodeBase::levelSize / 2))
+                            * util::Vector3I32(node->getHalfSize());
+                        auto offset = -util::Vector3I32(node->getQuarterSize()) - minInputPosition;
+                        auto endInputPosition =
+                            minInputPosition + util::Vector3I32(node->getHalfSize());
+                        minInputPosition = max(minInputPosition, targetPosition);
+                        endInputPosition = min(endInputPosition, targetPosition + size);
+                        if((endInputPosition - minInputPosition).min() > 0)
+                            childNodes[position.x][position.y][position.z] =
+                                setBlocks(static_cast<HashlifeNonleafNode *>(node)
+                                              ->childNodes[position.x][position.y][position.z],
+                                          std::forward<BlocksArray>(blocksArray),
+                                          minInputPosition + offset,
+                                          sourcePosition - targetPosition + minInputPosition,
+                                          endInputPosition - minInputPosition);
+                        else
+                            childNodes[position.x][position.y][position.z] =
+                                static_cast<HashlifeNonleafNode *>(node)
+                                    ->childNodes[position.x][position.y][position.z];
+                    }
+                }
+            }
+            return garbageCollectedHashtable.findOrAddNode(HashlifeNonleafNode(childNodes));
+        }
+    }
+
+public:
+    template <typename BlocksArray>
+    void setBlocks(BlocksArray &&blocksArray,
+                   util::Vector3I32 targetPosition,
+                   util::Vector3I32 sourcePosition,
+                   util::Vector3I32 size)
+    {
+        constexprAssert(size.min() >= 0);
+        if(size.min() <= 0)
+            return;
+        while(!rootNode->isPositionInside(targetPosition)
+              || !rootNode->isPositionInside(targetPosition + size - util::Vector3I32(1)))
+            expandRoot();
+        rootNode = setBlocks(
+            rootNode, std::forward<BlocksArray>(blocksArray), targetPosition, sourcePosition, size);
+    }
+    void setBlock(block::Block block, util::Vector3I32 position)
+    {
+        std::array<std::array<std::array<block::Block, 1>, 1>, 1> blocks;
+        blocks[0][0][0] = block;
+        setBlocks(blocks, position, util::Vector3I32(0), util::Vector3I32(1));
+    }
+    util::Vector3I32 minPosition() const noexcept
+    {
+        return util::Vector3I32(-rootNode->getHalfSize());
+    }
+    util::Vector3I32 endPosition() const noexcept
+    {
+        return util::Vector3I32(rootNode->getHalfSize());
+    }
+    util::Vector3I32 maxPosition() const noexcept
+    {
+        return util::Vector3I32(rootNode->getHalfSize() - 1);
     }
 };
 }

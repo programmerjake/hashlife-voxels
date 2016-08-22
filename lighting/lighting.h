@@ -35,10 +35,11 @@ namespace lighting
 {
 struct Lighting final
 {
-    typedef std::uint_fast8_t LightValueType;
-    static constexpr int lightBitWidth = 4;
+    typedef world::Dimension::Properties::LightValueType LightValueType;
+    static constexpr int lightBitWidth = world::Dimension::Properties::lightBitWidth;
     static constexpr LightValueType maxLight =
         (static_cast<LightValueType>(1) << lightBitWidth) - 1;
+    static_assert(maxLight == world::Dimension::Properties::maxLight, "");
     static constexpr float toFloat(LightValueType v)
     {
         return static_cast<float>(static_cast<int>(v)) / static_cast<int>(maxLight);
@@ -107,7 +108,8 @@ public:
     }
     float toFloat(const GlobalProperties &globalProperties) const noexcept
     {
-        return toFloat(globalProperties.skylight, globalProperties.dimension.getZeroBrightnessLevel());
+        return toFloat(globalProperties.skylight,
+                       globalProperties.dimension.getZeroBrightnessLevel());
     }
     constexpr Lighting() : directSkylight(0), indirectSkylight(0), indirectArtificalLight(0)
     {
@@ -211,10 +213,25 @@ struct LightProperties final
 {
     Lighting emissiveValue;
     Lighting reduceValue;
-    constexpr LightProperties(Lighting emissiveValue = Lighting(0, 0, 0),
-                              Lighting reduceValue = Lighting(0, 1, 1))
+    constexpr LightProperties(Lighting emissiveValue, Lighting reduceValue)
         : emissiveValue(emissiveValue), reduceValue(reduceValue)
     {
+    }
+    static constexpr LightProperties transparent(Lighting emissiveValue = Lighting(0, 0, 0))
+    {
+        return LightProperties(emissiveValue, Lighting(0, 1, 1));
+    }
+    static constexpr LightProperties blocksDirectLight(Lighting emissiveValue = Lighting(0, 0, 0))
+    {
+        return LightProperties(emissiveValue, Lighting::makeDirectOnlyLighting());
+    }
+    static constexpr LightProperties opaque(Lighting emissiveValue = Lighting(0, 0, 0))
+    {
+        return LightProperties(emissiveValue, Lighting::makeMaxLight());
+    }
+    static constexpr LightProperties water(Lighting emissiveValue = Lighting(0, 0, 0))
+    {
+        return LightProperties(emissiveValue, Lighting(2, 3, 3));
     }
     constexpr Lighting eval(
         Lighting nx, Lighting px, Lighting ny, Lighting py, Lighting nz, Lighting pz) const
@@ -325,7 +342,8 @@ namespace std
 template <>
 struct hash<programmerjake::voxels::lighting::Lighting::GlobalProperties>
 {
-    size_t operator()(const programmerjake::voxels::lighting::Lighting::GlobalProperties &globalProperties) const
+    size_t operator()(
+        const programmerjake::voxels::lighting::Lighting::GlobalProperties &globalProperties) const
     {
         return globalProperties.hash();
     }

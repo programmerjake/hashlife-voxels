@@ -234,6 +234,18 @@ public:
     {
         return Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
     }
+    constexpr Vector3 operator+() const
+    {
+        return *this;
+    }
+    constexpr Vector3 operator-() const
+    {
+        return Vector3(-x, -y, -z);
+    }
+    constexpr Vector3 operator~() const
+    {
+        return Vector3(~x, ~y, ~z);
+    }
     constexpr friend Vector3 operator+(const Vector3 &a, const Vector3 &b)
     {
         return Vector3(a.x + b.x, a.y + b.y, a.z + b.z);

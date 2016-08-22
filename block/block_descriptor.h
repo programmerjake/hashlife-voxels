@@ -41,7 +41,7 @@ namespace block
 {
 struct BlockStepGlobalState final
 {
-    static constexpr std::uint32_t log2OfStepSizeInGenerations = 5;
+    static constexpr std::uint32_t log2OfStepSizeInGenerations = 0;
     static constexpr std::uint32_t stepSizeInGenerations = 1UL << log2OfStepSizeInGenerations;
     lighting::Lighting::GlobalProperties lightingGlobalProperties;
     constexpr world::Dimension getDimension() const
@@ -76,7 +76,7 @@ struct BlockStepGlobalState final
 namespace std
 {
 template <>
-struct std::hash<programmerjake::voxels::block::BlockStepGlobalState>
+struct hash<programmerjake::voxels::block::BlockStepGlobalState>
 {
     std::size_t operator()(programmerjake::voxels::block::BlockStepGlobalState v) const
     {
@@ -146,7 +146,7 @@ public:
     }
     std::size_t hash() const noexcept
     {
-        return std::hash<const std::atomic_ptrdiff_t *>()(priority);
+        return std::hash<const std::ptrdiff_t *>()(priority);
     }
 };
 }
@@ -156,7 +156,7 @@ public:
 namespace std
 {
 template <>
-struct std::hash<programmerjake::voxels::block::BlockStepPriority>
+struct hash<programmerjake::voxels::block::BlockStepPriority>
 {
     std::size_t operator()(programmerjake::voxels::block::BlockStepPriority v) const
     {
@@ -178,7 +178,8 @@ namespace block
 {
 struct BlockStepExtraAction final
 {
-    typedef std::function<void(world::World &world, world::Position3I32 position)> ActionFunction;
+    typedef std::function<void(world::World &theWorld, world::Position3I32 position)>
+        ActionFunction;
     ActionFunction actionFunction;
     util::Vector3I32 positionOffset;
     explicit BlockStepExtraAction(ActionFunction actionFunction,
@@ -189,6 +190,10 @@ struct BlockStepExtraAction final
     void addOffset(util::Vector3I32 offset)
     {
         positionOffset += offset;
+    }
+    void run(world::World &theWorld, world::Dimension dimension) const
+    {
+        actionFunction(theWorld, world::Position3I32(positionOffset, dimension));
     }
 };
 
@@ -202,10 +207,10 @@ struct BlockStepExtraActions final
             if(actions)
                 actions->splice(actions->end(), std::move(*newActions.actions));
             else
-                actions = std::move(newActions);
+                actions = std::move(newActions.actions);
         }
     }
-    constexpr bool empty() const
+    bool empty() const
     {
         return !actions;
     }
@@ -215,6 +220,11 @@ struct BlockStepExtraActions final
     explicit BlockStepExtraActions(std::list<BlockStepExtraAction> actions)
         : actions(std::move(actions))
     {
+    }
+    explicit BlockStepExtraActions(BlockStepExtraAction action) : actions()
+    {
+        actions.emplace();
+        actions->push_back(std::move(action));
     }
     BlockStepExtraActions &addOffset(util::Vector3I32 offset) &
     {
@@ -242,6 +252,16 @@ struct BlockStepExtraActions final
     {
         return BlockStepExtraActions(std::move(*this)) += std::move(rt);
     }
+    void run(world::World &theWorld, world::Dimension dimension) const
+    {
+        if(actions)
+        {
+            for(auto &action : *actions)
+            {
+                action.run(theWorld, dimension);
+            }
+        }
+    }
 };
 
 struct BlockStepPartOutput final
@@ -249,7 +269,7 @@ struct BlockStepPartOutput final
     BlockKind blockKind;
     BlockStepPriority priority;
     BlockStepExtraActions actions;
-    constexpr bool empty() const
+    bool empty() const
     {
         return blockKind == BlockKind::empty() && actions.empty();
     }
@@ -258,8 +278,39 @@ struct BlockStepPartOutput final
     }
     BlockStepPartOutput(BlockKind blockKind,
                         BlockStepPriority priority,
-                        util::Optional<std::list<BlockStepExtraAction>> actions)
+                        BlockStepExtraActions actions)
         : blockKind(blockKind), priority(priority), actions(std::move(actions))
+    {
+    }
+    BlockStepPartOutput(BlockKind blockKind,
+                        BlockStepPriority priority,
+                        std::list<BlockStepExtraAction> actions)
+        : blockKind(blockKind), priority(priority), actions(std::move(actions))
+    {
+    }
+    BlockStepPartOutput(BlockKind blockKind,
+                        BlockStepPriority priority,
+                        BlockStepExtraAction action)
+        : blockKind(blockKind), priority(priority), actions(std::move(action))
+    {
+    }
+    constexpr BlockStepPartOutput(BlockKind blockKind, BlockStepPriority priority)
+        : blockKind(blockKind), priority(priority), actions()
+    {
+    }
+    BlockStepPartOutput(BlockKind blockKind, BlockStepExtraActions actions)
+        : blockKind(blockKind), priority(), actions(std::move(actions))
+    {
+    }
+    BlockStepPartOutput(BlockKind blockKind, std::list<BlockStepExtraAction> actions)
+        : blockKind(blockKind), priority(), actions(std::move(actions))
+    {
+    }
+    BlockStepPartOutput(BlockKind blockKind, BlockStepExtraAction action)
+        : blockKind(blockKind), priority(), actions(std::move(action))
+    {
+    }
+    constexpr BlockStepPartOutput(BlockKind blockKind) : blockKind(blockKind), priority(), actions()
     {
     }
     BlockStepPartOutput &operator+=(BlockStepPartOutput rt)
@@ -319,11 +370,14 @@ private:
         return *retval;
     }
 
+protected:
+    explicit BlockDescriptor(std::string name, lighting::LightProperties lightProperties) noexcept;
+
 public:
     virtual ~BlockDescriptor() = default;
     const BlockKind blockKind;
+    const std::string name;
     const lighting::LightProperties lightProperties;
-    BlockDescriptor() noexcept;
     virtual BlockStepPartOutput stepNXNYNZ(const BlockStepInput &stepInput,
                                            const block::BlockStepGlobalState &stepGlobalState) const
     {
@@ -459,6 +513,8 @@ public:
     {
         return BlockStepPartOutput();
     }
+
+private:
     static BlockStepPartOutput stepNXNYNZ(BlockKind blockKind,
                                           const BlockStepInput &stepInput,
                                           const block::BlockStepGlobalState &stepGlobalState)
@@ -675,6 +731,8 @@ public:
             return BlockStepPartOutput();
         return get(blockKind)->stepPXPYPZ(stepInput, stepGlobalState);
     }
+
+public:
     static const BlockDescriptor *get(BlockKind blockKind) noexcept
     {
         static_assert(BlockKind::empty().value == 0, "");
@@ -689,7 +747,7 @@ public:
                                     const block::BlockStepGlobalState &stepGlobalState)
     {
         if(stepInput.blocks[1][1][1].getBlockKind() == BlockKind::empty())
-            return stepInput.blocks[1][1][1];
+            return BlockStepFullOutput(stepInput.blocks[1][1][1], BlockStepExtraActions());
         BlockStepPartOutput blockStepPartOutput =
             stepNXNYNZ(stepInput.blocks[0][0][0].getBlockKind(), stepInput, stepGlobalState);
         blockStepPartOutput +=

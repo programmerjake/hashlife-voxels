@@ -18,9 +18,8 @@
  * MA 02110-1301, USA.
  *
  */
-#include "block.h"
-#include "../logging/logging.h"
-#include <exception>
+#include "init.h"
+#include "air.h"
 
 namespace programmerjake
 {
@@ -28,16 +27,12 @@ namespace voxels
 {
 namespace block
 {
-BlockKind BlockKind::allocate() noexcept
+namespace builtin
 {
-    static ValueType lastBlockId = empty().value;
-    BlockKind retval{++lastBlockId};
-    if(retval.value >= 1UL << Block::blockKindValueBitWidth)
-    {
-        logging::log(logging::Level::Fatal, "BlockKind", "out of BlockKind values");
-        std::terminate();
-    }
-    return retval;
+void init()
+{
+    Air::init();
+}
 }
 }
 }

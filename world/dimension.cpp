@@ -18,26 +18,33 @@
  * MA 02110-1301, USA.
  *
  */
-#include "block.h"
+#include "dimension.h"
 #include "../logging/logging.h"
 #include <exception>
+#include "../util/constexpr_assert.h"
+#include "../lighting/lighting.h"
 
 namespace programmerjake
 {
 namespace voxels
 {
-namespace block
+namespace world
 {
-BlockKind BlockKind::allocate() noexcept
+std::vector<Dimension::Properties> *Dimension::makePropertiesLookupTable() noexcept
 {
-    static ValueType lastBlockId = empty().value;
-    BlockKind retval{++lastBlockId};
-    if(retval.value >= 1UL << Block::blockKindValueBitWidth)
-    {
-        logging::log(logging::Level::Fatal, "BlockKind", "out of BlockKind values");
-        std::terminate();
-    }
+    auto *retval = new std::vector<Properties>;
+    constexprAssert(retval->size() == overworld().value);
+    retval->push_back(Properties(0, "Overworld", true, lighting::Lighting::maxLight));
+    constexprAssert(retval->size() == nether().value);
+    retval->push_back(Properties(0, "Nether", false, 0));
+    constexprAssert(retval->size() - 1 == lastPredefinedDimension().value);
     return retval;
+}
+
+void Dimension::handleTooManyDimensions() noexcept
+{
+    logging::log(logging::Level::Fatal, "Dimension", "out of Dimension values");
+    std::terminate();
 }
 }
 }

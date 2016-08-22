@@ -42,7 +42,7 @@ struct Position3 : private util::Vector3<T>
     constexpr Position3() : util::Vector3<T>(), d()
     {
     }
-    constexpr Position3(Vector3 v, Dimension d) : util::Vector3<T>(v), d(d)
+    constexpr Position3(util::Vector3<T> v, Dimension d) : util::Vector3<T>(v), d(d)
     {
     }
     constexpr Position3(T v, Dimension d) : util::Vector3<T>(v), d(d)
@@ -60,7 +60,8 @@ struct Position3 : private util::Vector3<T>
     {
         return *static_cast<const util::Vector3<T> *>(this);
     }
-    friend Position3 operator+(const Position3 &a, const Position3 &b) = delete;
+    template <typename U>
+    friend void operator+(const Position3<U> &a, const Position3<U> &b);
     friend constexpr Position3 operator+(const Position3 &a, const util::Vector3<T> &b)
     {
         return Position3(static_cast<util::Vector3<T>>(a) + b, a.d);
@@ -77,7 +78,8 @@ struct Position3 : private util::Vector3<T>
     {
         return Position3(static_cast<util::Vector3<T>>(a) - b, a.d);
     }
-    friend constexpr Position3 operator-(const util::Vector3<T> &a, const Position3 &b) = delete;
+    template <typename U>
+    friend void operator-(const util::Vector3<U> &a, const Position3<U> &b);
     Position3 &operator+=(const Position3 &rt) = delete;
     Position3 &operator-=(const Position3 &rt) = delete;
     Position3 &operator+=(const util::Vector3<T> &rt)
@@ -99,6 +101,12 @@ struct Position3 : private util::Vector3<T>
         return !(a == b);
     }
 };
+
+template <typename U>
+void operator+(const Position3<U> &a, const Position3<U> &b) = delete;
+
+template <typename U>
+void operator-(const util::Vector3<U> &a, const Position3<U> &b) = delete;
 
 typedef Position3<float> Position3F;
 typedef Position3<std::int32_t> Position3I32;

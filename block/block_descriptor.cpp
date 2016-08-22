@@ -18,9 +18,7 @@
  * MA 02110-1301, USA.
  *
  */
-#include "block.h"
-#include "../logging/logging.h"
-#include <exception>
+#include "block_descriptor.h"
 
 namespace programmerjake
 {
@@ -28,16 +26,16 @@ namespace voxels
 {
 namespace block
 {
-BlockKind BlockKind::allocate() noexcept
+BlockDescriptor::BlockDescriptor(std::string name,
+                                 lighting::LightProperties lightProperties) noexcept
+    : blockKind(BlockKind::allocate()),
+      name(std::move(name)),
+      lightProperties(lightProperties)
 {
-    static ValueType lastBlockId = empty().value;
-    BlockKind retval{++lastBlockId};
-    if(retval.value >= 1UL << Block::blockKindValueBitWidth)
-    {
-        logging::log(logging::Level::Fatal, "BlockKind", "out of BlockKind values");
-        std::terminate();
-    }
-    return retval;
+    auto &descriptorsLookupTable = getDescriptorsLookupTable();
+    if(descriptorsLookupTable.size() <= blockKind.value)
+        descriptorsLookupTable.resize(blockKind.value * 2);
+    descriptorsLookupTable[blockKind.value - 1] = this;
 }
 }
 }

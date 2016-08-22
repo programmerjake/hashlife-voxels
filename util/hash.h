@@ -24,6 +24,7 @@
 
 #include <limits>
 #include <cstdint>
+#include <type_traits>
 
 namespace programmerjake
 {

@@ -24,6 +24,9 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
+#include <vector>
+#include <cstdint>
 
 namespace programmerjake
 {
@@ -33,6 +36,38 @@ namespace world
 {
 struct Dimension final
 {
+    struct Properties final
+    {
+        typedef std::uint_fast8_t LightValueType;
+        static constexpr int lightBitWidth = 4;
+        static constexpr LightValueType maxLight =
+            (static_cast<LightValueType>(1) << lightBitWidth) - 1;
+        float zeroBrightnessLevel;
+        std::string name;
+        bool hasDayNightCycle;
+        LightValueType maxSkylightLevel;
+        explicit Properties(float zeroBrightnessLevel,
+                            std::string name,
+                            bool hasDayNightCycle,
+                            LightValueType maxSkylightLevel)
+            : zeroBrightnessLevel(zeroBrightnessLevel),
+              name(std::move(name)),
+              hasDayNightCycle(hasDayNightCycle),
+              maxSkylightLevel(maxSkylightLevel)
+        {
+        }
+    };
+
+private:
+    static std::vector<Properties> *makePropertiesLookupTable() noexcept;
+    static void handleTooManyDimensions() noexcept;
+    static std::vector<Properties> &getPropertiesLookupTable() noexcept
+    {
+        static std::vector<Properties> *retval = makePropertiesLookupTable();
+        return *retval;
+    }
+
+public:
     typedef std::uint8_t ValueType;
     ValueType value = 0;
     constexpr Dimension() = default;
@@ -51,8 +86,39 @@ struct Dimension final
     {
         return nether();
     }
-    static Dimension allocate(float zeroBrightnessLevel) noexcept;
-    float getZeroBrightnessLevel() const noexcept;
+    static Dimension allocate(Properties properties) noexcept
+    {
+        auto &propertiesLookupTable = getPropertiesLookupTable();
+        Dimension retval(propertiesLookupTable.size());
+        if(retval.value != propertiesLookupTable.size())
+            handleTooManyDimensions();
+        propertiesLookupTable.push_back(std::move(properties));
+        return retval;
+    }
+    static void init()
+    {
+        getPropertiesLookupTable();
+    }
+    const Properties &getProperties() const noexcept
+    {
+        return getPropertiesLookupTable()[value];
+    }
+    float getZeroBrightnessLevel() const noexcept
+    {
+        return getProperties().zeroBrightnessLevel;
+    }
+    const std::string &getName() const noexcept
+    {
+        return getProperties().name;
+    }
+    constexpr bool operator==(const Dimension &rt) const
+    {
+        return value == rt.value;
+    }
+    constexpr bool operator!=(const Dimension &rt) const
+    {
+        return value != rt.value;
+    }
 };
 }
 }

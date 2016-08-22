@@ -23,6 +23,8 @@
 #define UTIL_ENUM_H_
 
 #include <type_traits>
+#include <array>
+#include "integer_sequence.h"
 
 namespace programmerjake
 {
@@ -42,10 +44,16 @@ struct EnumTraitsImplementation
 private:
     struct DetectMin final
     {
-        template <EnumType minValue = EnumType::programmerjake_voxels_util_enumMinValue>
-        std::integral_constant<EnumType, minValue> fn(int);
-        std::integral_constant<EnumType, EnumType()> fn(...);
-        static constexpr EnumType value = decltype(fn(0))::value;
+        template <typename T, T minValue = T::programmerjake_voxels_util_enumMinValue>
+        static std::integral_constant<T, minValue> fn(T *)
+        {
+            return {};
+        }
+        static std::integral_constant<EnumType, (0, EnumType())> fn(...)
+        {
+            return {};
+        }
+        static constexpr EnumType value = decltype(fn(static_cast<EnumType *>(nullptr)))::value;
     };
 
 public:
@@ -69,37 +77,25 @@ class EnumIterator;
 template <typename EnumType>
 struct EnumTraits final
 {
-    template <typename EnumType>
+    template <typename>
     friend class EnumIterator;
 
 public:
-    typename EnumType type;
+    typedef EnumType type;
     typedef typename EnumTraitsImplementation<EnumType>::underlying_type underlying_type;
 
 private:
-    template <EnumType... enumValues>
+    template <underlying_type... values>
     static constexpr std::array<EnumType, EnumTraitsImplementation<EnumType>::size> makeValues(
-        typename std::enable_if<sizeof...(enumValues) == EnumTraitsImplementation<EnumType>::size,
-                                int>::type = 0)
+        IntegerSequence<underlying_type, values...>)
     {
-        return std::array<EnumType, EnumTraitsImplementation<EnumType>::size>{{enumValues...}};
-    }
-    template <EnumType... enumValues, EnumType lastValue>
-    static constexpr std::array<EnumType, EnumTraitsImplementation<EnumType>::size> makeValues(
-        typename std::enable_if<sizeof...(enumValues) + 1
-                                    < EnumTraitsImplementation<EnumType>::size,
-                                int>::type = 0)
-    {
-        return makeValues<enumValues...,
-                          lastValue,
-                          static_cast<EnumType>(
-                              static_cast<
-                                  typename EnumTraitsImplementation<EnumType>::underlying_type>(
-                                  lastValue) + 1)>();
+        return std::array<EnumType, EnumTraitsImplementation<EnumType>::size>{static_cast<EnumType>(
+            values + static_cast<underlying_type>(EnumTraitsImplementation<EnumType>::min))...};
     }
     typedef std::array<EnumType, EnumTraitsImplementation<EnumType>::size> ValuesImplementationType;
     static constexpr std::array<EnumType, EnumTraitsImplementation<EnumType>::size>
-        valuesImplementation = makeValues<EnumTraitsImplementation<EnumType>::min>();
+        valuesImplementation = makeValues(
+            MakeIntegerSequence<underlying_type, EnumTraitsImplementation<EnumType>::size>());
 
 public:
     struct ValuesType final
@@ -120,13 +116,20 @@ public:
 };
 
 template <typename EnumType>
+constexpr std::array<EnumType, EnumTraitsImplementation<EnumType>::size>
+    EnumTraits<EnumType>::valuesImplementation;
+
+template <typename EnumType>
+constexpr typename EnumTraits<EnumType>::ValuesType EnumTraits<EnumType>::values;
+
+template <typename EnumType>
 class EnumIterator final
 {
-    template <typename EnumType>
+    template <typename>
     friend struct EnumTraits;
 
 private:
-    typedef typename EnumTraits<EnumType>::ValuesType::const_iterator IteratorType;
+    typedef typename EnumTraits<EnumType>::ValuesImplementationType::const_iterator IteratorType;
 
 public:
     typedef typename std::iterator_traits<IteratorType>::difference_type difference_type;
@@ -149,7 +152,7 @@ public:
     {
     }
     constexpr explicit EnumIterator(EnumType value)
-        : value(EnumTraits<EnumType>::values.begin()
+        : value(EnumTraits<EnumType>::valuesImplementation.begin()
                 + (static_cast<std::size_t>(value)
                    - static_cast<std::size_t>(EnumTraits<EnumType>::min)))
     {
@@ -232,7 +235,7 @@ public:
     }
     constexpr difference_type operator-(EnumIterator r) const
     {
-        return value - r;
+        return value - r.value;
     }
 };
 

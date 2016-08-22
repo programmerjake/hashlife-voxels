@@ -42,14 +42,6 @@ struct BlockKind final
     {
         return {};
     }
-    static constexpr BlockKind air()
-    {
-        return BlockKind{static_cast<ValueType>(empty().value + 1)};
-    }
-    static constexpr BlockKind lastPredefinedBlockKind()
-    {
-        return air();
-    }
     constexpr BlockKind(ValueType value) : value(value)
     {
     }
@@ -100,6 +92,9 @@ struct Block final
     {
     }
     constexpr explicit Block(ValueType value) : value(value)
+    {
+    }
+    constexpr explicit Block(BlockKind blockKind) : Block(blockKind, lighting::Lighting())
     {
     }
     constexpr Block() : Block(BlockKind::empty(), lighting::Lighting::makeSkyLighting())

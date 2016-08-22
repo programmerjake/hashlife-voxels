@@ -67,7 +67,7 @@ class Optional;
 template <typename T, bool isTriviallyDestructable = std::is_trivially_destructible<T>::value>
 class OptionalImplementation final
 {
-    template <typename T>
+    template <typename>
     friend class Optional;
     OptionalImplementation(const OptionalImplementation &) = delete;
     OptionalImplementation &operator=(const OptionalImplementation &) = delete;
@@ -85,9 +85,8 @@ public:
     {
     }
     template <typename... Args>
-    constexpr OptionalImplementation(InPlaceT,
-                                     Args &&... args) noexcept(::new(std::declval<void *>())
-                                                                   T(std::declval<Args>()...))
+    constexpr OptionalImplementation(InPlaceT, Args &&... args) noexcept(
+        noexcept(::new(std::declval<void *>()) T(std::declval<Args>()...)))
         : fullValue(std::forward<Args>(args)...), isFull(true)
     {
     }
@@ -107,7 +106,7 @@ public:
 template <typename T>
 class OptionalImplementation<T, true> final
 {
-    template <typename T>
+    template <typename>
     friend class Optional;
     OptionalImplementation(const OptionalImplementation &) = delete;
     OptionalImplementation &operator=(const OptionalImplementation &) = delete;
@@ -126,7 +125,7 @@ public:
     }
     template <typename... Args>
     constexpr explicit OptionalImplementation(InPlaceT, Args &&... args) noexcept(
-        ::new(std::declval<void *>()) T(std::declval<Args>()...))
+        noexcept(::new(std::declval<void *>()) T(std::declval<Args>()...)))
         : fullValue(std::forward<Args>(args)...), isFull(true)
     {
     }
@@ -159,7 +158,7 @@ public:
             ::new(static_cast<void *>(std::addressof(implementation.fullValue)))
                 T(rt.implementation.fullValue);
     }
-    Optional(const Optional &rt) noexcept(std::is_nothrow_move_constructible<T>::implementation)
+    Optional(Optional &&rt) noexcept(std::is_nothrow_move_constructible<T>::value)
         : implementation()
     {
         implementation.isFull = rt.implementation.isFull;
@@ -215,8 +214,8 @@ public:
         return *this;
     }
     Optional &operator=(Optional &&rt) noexcept(
-        std::is_nothrow_move_assignable<T>::implementation &&
-            std::is_nothrow_move_constructible<T>::implementation)
+        std::is_nothrow_move_assignable<T>::value &&
+            std::is_nothrow_move_constructible<T>::value)
     {
         if(!implementation.isFull && rt.implementation.isFull)
         {

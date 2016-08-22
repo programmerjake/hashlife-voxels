@@ -36,10 +36,11 @@ namespace world
 class HashlifeGarbageCollectedHashtable final
 {
     HashlifeGarbageCollectedHashtable(const HashlifeGarbageCollectedHashtable &) = delete;
-    HashlifeGarbageCollectedHashtable &operator=(const HashlifeGarbageCollectedHashtable &) = delete;
+    HashlifeGarbageCollectedHashtable &operator=(const HashlifeGarbageCollectedHashtable &) =
+        delete;
 
 private:
-    constexpr std::size_t bucketCount = 1UL << 17;
+    static constexpr std::size_t bucketCount = 1UL << 17;
     HashlifeNodeBase **const buckets;
     HashlifeNodeBase *canonicalEmptyNodes[HashlifeNodeBase::maxLevel + 1];
     std::size_t nodeCount;
@@ -89,8 +90,8 @@ private:
         constexprAssert(!newNode->garbageCollectState.stateUnmarked.isInCollectPendingNodeQueue(
             collectPendingNodeQueueHead));
         nodeCount++;
-        newNode->hashNext = pBucket;
-        pBucket = newNode;
+        newNode->hashNext = *pBucket;
+        *pBucket = newNode;
         return newNode;
     }
     void unlinkAndFreeNode(HashlifeNodeBase *node) noexcept
@@ -163,16 +164,15 @@ public:
             else
             {
                 auto previousCanonicalEmptyNode = getCanonicalEmptyNode(level - 1);
-                canonicalEmptyNodes[level] = findOrAddNode(HashlifeNonleafNode(
-                    previousCanonicalEmptyNode,
-                    previousCanonicalEmptyNode,
-                    previousCanonicalEmptyNode,
-                    previousCanonicalEmptyNode,
-                    previousCanonicalEmptyNode,
-                    previousCanonicalEmptyNode,
-                    previousCanonicalEmptyNode,
-                    previousCanonicalEmptyNode,
-                    HashlifeNonleafNode::FutureState(previousCanonicalEmptyNode, {})));
+                canonicalEmptyNodes[level] =
+                    findOrAddNode(HashlifeNonleafNode(previousCanonicalEmptyNode,
+                                                      previousCanonicalEmptyNode,
+                                                      previousCanonicalEmptyNode,
+                                                      previousCanonicalEmptyNode,
+                                                      previousCanonicalEmptyNode,
+                                                      previousCanonicalEmptyNode,
+                                                      previousCanonicalEmptyNode,
+                                                      previousCanonicalEmptyNode));
             }
         }
         return canonicalEmptyNodes[level];

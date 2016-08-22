@@ -18,27 +18,4 @@
  * MA 02110-1301, USA.
  *
  */
-#include "block.h"
-#include "../logging/logging.h"
-#include <exception>
-
-namespace programmerjake
-{
-namespace voxels
-{
-namespace block
-{
-BlockKind BlockKind::allocate() noexcept
-{
-    static ValueType lastBlockId = empty().value;
-    BlockKind retval{++lastBlockId};
-    if(retval.value >= 1UL << Block::blockKindValueBitWidth)
-    {
-        logging::log(logging::Level::Fatal, "BlockKind", "out of BlockKind values");
-        std::terminate();
-    }
-    return retval;
-}
-}
-}
-}
+#include "interpolate.h"
