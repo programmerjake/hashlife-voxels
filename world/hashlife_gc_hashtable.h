@@ -252,13 +252,14 @@ public:
             else
             {
                 auto nonleafNode = static_cast<HashlifeNonleafNode *>(node);
-                for(auto &i : nonleafNode->childNodes)
+                for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
+                    position.x++)
                 {
-                    for(auto &j : i)
+                    for(position.y = 0; position.y < HashlifeNodeBase::levelSize; position.y++)
                     {
-                        for(auto childNode : j)
+                        for(position.z = 0; position.z < HashlifeNodeBase::levelSize; position.z++)
                         {
-                            markNode(childNode, worklistHead);
+                            markNode(nonleafNode->getChildNode(position), worklistHead);
                         }
                     }
                 }

@@ -58,9 +58,10 @@ static constexpr EuclideanMetric euclideanMetric{};
 struct VectorImplementation final
 {
     template <typename I, typename F>
-    constexpr typename std::enable_if<std::is_floating_point<F>::value && std::is_integral<I>::value
-                                          && !std::is_same<bool, I>::value,
-                                      I>::type
+    static constexpr
+        typename std::enable_if<std::is_floating_point<F>::value && std::is_integral<I>::value
+                                    && !std::is_same<bool, I>::value,
+                                I>::type
         constexprFloor(F v)
     {
         return v < 0 ? static_cast<I>(-static_cast<I>(-v)) : static_cast<I>(v);
@@ -70,7 +71,7 @@ struct VectorImplementation final
               typename = typename std::enable_if<std::is_floating_point<From>::value
                                                  && std::is_integral<To>::value
                                                  && !std::is_same<bool, To>::value>::type>
-    constexpr To convert(From v)
+    static constexpr To convert(From v)
     {
         return constexprFloor<To, From>(v);
     }
@@ -79,7 +80,7 @@ struct VectorImplementation final
               typename = typename std::enable_if<!std::is_floating_point<From>::value
                                                  || !std::is_integral<To>::value
                                                  || std::is_same<bool, To>::value>::type>
-    constexpr To convert(From v, int = 0)
+    static constexpr To convert(From v, int = 0)
     {
         return static_cast<To>(v);
     }

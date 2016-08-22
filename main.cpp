@@ -44,48 +44,95 @@ struct MyBlock final : public block::BlockDescriptor
     };
 
 private:
-    explicit MyBlock(State state)
-        : BlockDescriptor("testing.myBlock", lighting::LightProperties::opaque()), state(state)
+    static const char *getStateName(State state) noexcept
+    {
+        switch(state)
+        {
+        case State::Started:
+            return "Started";
+        case State::Done:
+            return "Done";
+        }
+        constexprAssert(false);
+        return "<unknown>";
+    }
+    static std::string getName(State state, std::uint32_t generation)
+    {
+        std::ostringstream ss;
+        ss << "testing.myBlock(";
+        ss << getStateName(state);
+        ss << ",";
+        ss << generation;
+        ss << ")";
+        return ss.str();
+    }
+    explicit MyBlock(State state, std::uint32_t generation)
+        : BlockDescriptor(getName(state, generation), lighting::LightProperties::opaque()),
+          state(state),
+          generation(generation)
     {
     }
-    static std::array<const MyBlock *, util::EnumTraits<State>::size> make()
+    static std::array<std::array<const MyBlock *,
+                                 block::BlockStepGlobalState::stepSizeInGenerations>,
+                      util::EnumTraits<State>::size>
+        make()
     {
-        std::array<const MyBlock *, util::EnumTraits<State>::size> retval;
+        std::array<std::array<const MyBlock *, block::BlockStepGlobalState::stepSizeInGenerations>,
+                   util::EnumTraits<State>::size> retval;
         for(auto state : util::EnumTraits<State>::values)
         {
-            retval[util::EnumIterator<State>(state) - util::EnumTraits<State>::values.begin()] =
-                new MyBlock(state);
+            for(std::uint32_t generation = 0;
+                generation < block::BlockStepGlobalState::stepSizeInGenerations;
+                generation++)
+            {
+                retval[util::EnumIterator<State>(state)
+                       - util::EnumTraits<State>::values.begin()][generation] =
+                    new MyBlock(state, generation);
+            }
         }
         return retval;
     }
 
 public:
     const State state;
-    static const std::array<const MyBlock *, util::EnumTraits<State>::size> &get()
+    const std::uint32_t generation;
+    static const std::array<std::array<const MyBlock *,
+                                       block::BlockStepGlobalState::stepSizeInGenerations>,
+                            util::EnumTraits<State>::size> &
+        get()
     {
-        static std::array<const MyBlock *, util::EnumTraits<State>::size> retval = make();
+        static const std::array<std::array<const MyBlock *,
+                                           block::BlockStepGlobalState::stepSizeInGenerations>,
+                                util::EnumTraits<State>::size> retval = make();
         return retval;
     }
-    static const MyBlock *get(State state)
+    static const MyBlock *get(State state, std::uint32_t generation)
     {
-        return get()[util::EnumIterator<State>(state) - util::EnumTraits<State>::values.begin()];
+        return get()[util::EnumIterator<State>(state)
+                     - util::EnumTraits<State>::values.begin()][generation];
     }
     static void init()
     {
         get();
     }
-    virtual block::BlockStepPartOutput stepCXCYCZ(
+    virtual block::BlockStepPartOutput stepFromCXCYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const override
     {
+#if 1
         switch(state)
         {
         case State::Done:
-            return {};
+            if(generation == 0)
+                return {block::builtin::Air::get()->blockKind};
+            return {get(State::Done,
+                        (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
         case State::Started:
         {
             return block::BlockStepPartOutput(
-                get(State::Done)->blockKind,
+                get(State::Done,
+                    (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)
+                    ->blockKind,
                 block::BlockStepExtraAction([](world::World &world, world::Position3I32 position)
                                             {
                                                 std::ostringstream ss;
@@ -97,62 +144,77 @@ public:
         }
         }
         constexprAssert(false);
+#endif
         return {};
     }
-    virtual block::BlockStepPartOutput stepNXCYCZ(
+    virtual block::BlockStepPartOutput stepFromCXNYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const override
     {
         if(dynamic_cast<const MyBlock *>(
                BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
             return {};
-        return {get(State::Started)->blockKind};
+        return {
+            get(State::Started,
+                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
     }
-    virtual block::BlockStepPartOutput stepPXCYCZ(
+#if 1
+    virtual block::BlockStepPartOutput stepFromNXCYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const override
     {
         if(dynamic_cast<const MyBlock *>(
                BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
             return {};
-        return {get(State::Started)->blockKind};
+        return {
+            get(State::Started,
+                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
     }
-    virtual block::BlockStepPartOutput stepCXNYCZ(
+    virtual block::BlockStepPartOutput stepFromCXCYNZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const override
     {
         if(dynamic_cast<const MyBlock *>(
                BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
             return {};
-        return {get(State::Started)->blockKind};
+        return {
+            get(State::Started,
+                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
     }
-    virtual block::BlockStepPartOutput stepCXPYCZ(
+    virtual block::BlockStepPartOutput stepFromPXCYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const override
     {
         if(dynamic_cast<const MyBlock *>(
                BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
             return {};
-        return {get(State::Started)->blockKind};
+        return {
+            get(State::Started,
+                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
     }
-    virtual block::BlockStepPartOutput stepCXCYNZ(
+    virtual block::BlockStepPartOutput stepFromCXPYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const override
     {
         if(dynamic_cast<const MyBlock *>(
                BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
             return {};
-        return {get(State::Started)->blockKind};
+        return {
+            get(State::Started,
+                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
     }
-    virtual block::BlockStepPartOutput stepCXCYPZ(
+    virtual block::BlockStepPartOutput stepFromCXCYPZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const override
     {
         if(dynamic_cast<const MyBlock *>(
                BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
             return {};
-        return {get(State::Started)->blockKind};
+        return {
+            get(State::Started,
+                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
     }
+#endif
 };
 template <typename>
 struct DumpAccessArrayWrapper;
@@ -194,13 +256,14 @@ struct DumpAccessArrayWrapper<std::array<T, N>>
         return IsArray<T>::addWrapper(value[index]);
     }
 };
+
 int main()
 {
     world::initAll();
     MyBlock::init();
     logging::setGlobalLevel(logging::Level::Debug);
     world::World theWorld;
-    constexpr std::size_t blocksSize = 2;
+    constexpr std::size_t blocksSize = 8;
     typedef std::array<std::array<std::array<block::Block, blocksSize>, blocksSize>, blocksSize>
         Blocks;
     Blocks blocks;
@@ -208,41 +271,55 @@ int main()
         for(auto &j : i)
             for(auto &block : j)
                 block = block::Block(block::builtin::Air::get()->blockKind);
-    blocks[blocksSize / 2][blocksSize / 2][blocksSize / 2] =
-        block::Block(MyBlock::get(MyBlock::State::Started)->blockKind);
-    theWorld.hashlifeWorld->setBlocks(DumpAccessArrayWrapper<Blocks>(blocks),
-                                      util::Vector3I32(0),
+    theWorld.hashlifeWorld->setBlocks(blocks,
+                                      -util::Vector3I32(blocksSize / 2),
                                       util::Vector3I32(0),
                                       util::Vector3I32(blocksSize));
-    for(util::Vector3I32 p(-5); p.x < 5; p.x++)
+    theWorld.hashlifeWorld->setBlock(
+        block::Block(MyBlock::get(MyBlock::State::Started, 0)->blockKind), util::Vector3I32(0));
+    auto snapshot = theWorld.hashlifeWorld->makeSnapshot();
+    for(std::size_t step = 0; step < 2000; step++)
     {
-        for(p.y = -5; p.y < 5; p.y++)
-        {
-            for(p.z = -5; p.z < 5; p.z++)
-            {
-                auto blockKind = theWorld.hashlifeWorld->get(p).getBlockKind();
-                if(blockKind == block::BlockKind::empty())
-                    continue;
-                std::cout.width(3);
-                std::cout << p.x;
-                std::cout << " ";
-                std::cout.width(3);
-                std::cout << p.y;
-                std::cout << " ";
-                std::cout.width(3);
-                std::cout << p.z;
-                std::cout << " ";
-                std::cout << blockKind.value;
-                std::cout << std::endl;
-            }
-        }
-    }
-    for(std::size_t step = 0; step < 20; step++)
-    {
+        snapshot = theWorld.hashlifeWorld->makeSnapshot();
         auto actions = theWorld.hashlifeWorld->stepAndCollectGarbage(
             block::BlockStepGlobalState(lighting::Lighting::GlobalProperties(
                 lighting::Lighting::maxLight, world::Dimension::overworld())));
         actions.run(theWorld, world::Dimension::overworld());
+#if 1
+        std::cout << step << std::endl;
+        constexpr std::int32_t searchDistance = blocksSize / 2;
+        for(util::Vector3I32 p(-searchDistance); p.x < searchDistance || p.x == 0; p.x++)
+        {
+            constexpr auto columnWidth = 5;
+            std::cout.width(columnWidth);
+            std::cout << p.x;
+            std::cout.width(columnWidth);
+            std::cout << "";
+            for(std::int32_t i = -searchDistance; i < searchDistance || i == 0; i++)
+            {
+                std::cout.width(columnWidth);
+                std::cout << i;
+            }
+            std::cout << std::endl;
+            std::cout << std::endl;
+            for(p.y = -searchDistance; p.y < searchDistance || p.y == 0; p.y++)
+            {
+                std::cout.width(columnWidth);
+                std::cout << p.y;
+                std::cout.width(columnWidth);
+                std::cout << "";
+                for(p.z = -searchDistance; p.z < searchDistance || p.z == 0; p.z++)
+                {
+                    auto blockKind = snapshot->get(p).getBlockKind();
+                    std::cout.width(columnWidth);
+                    std::cout << blockKind.value;
+                }
+                std::cout << std::endl;
+            }
+            std::cout << std::endl;
+            std::cout << std::endl;
+        }
+#endif
     }
     return 0;
 }

@@ -153,18 +153,18 @@ public:
     }
     Optional(const Optional &rt) : implementation()
     {
-        implementation.isFull = rt.implementation.isFull;
-        if(implementation.isFull)
+        if(rt.implementation.isFull)
             ::new(static_cast<void *>(std::addressof(implementation.fullValue)))
                 T(rt.implementation.fullValue);
+        implementation.isFull = rt.implementation.isFull;
     }
     Optional(Optional &&rt) noexcept(std::is_nothrow_move_constructible<T>::value)
         : implementation()
     {
-        implementation.isFull = rt.implementation.isFull;
-        if(implementation.isFull)
+        if(rt.implementation.isFull)
             ::new(static_cast<void *>(std::addressof(implementation.fullValue)))
                 T(std::move(rt.implementation.fullValue));
+        implementation.isFull = rt.implementation.isFull;
     }
     constexpr Optional(const T &value) : implementation(inPlace, value)
     {
