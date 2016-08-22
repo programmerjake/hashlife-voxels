@@ -26,6 +26,7 @@
 #include "util/constexpr_assert.h"
 #include "block/builtin/air.h"
 #include <sstream>
+#include <iostream>
 
 namespace programmerjake
 {
@@ -153,18 +154,89 @@ public:
         return {get(State::Started)->blockKind};
     }
 };
+template <typename>
+struct DumpAccessArrayWrapper;
+template <typename T>
+struct IsArray
+{
+    static constexpr bool value = false;
+    static T &addWrapper(T &value) noexcept
+    {
+        std::cout << " -> " << block::BlockDescriptor::get(value.getBlockKind())->name << std::endl;
+        return value;
+    }
+};
+template <typename T, std::size_t N>
+struct IsArray<std::array<T, N>>
+{
+    static constexpr bool value = true;
+    static DumpAccessArrayWrapper<std::array<T, N>> addWrapper(std::array<T, N> &value) noexcept
+    {
+        return DumpAccessArrayWrapper<std::array<T, N>>(value);
+    }
+};
+
+template <typename T, std::size_t N>
+struct DumpAccessArrayWrapper<std::array<T, N>>
+{
+    std::array<T, N> &value;
+    DumpAccessArrayWrapper(std::array<T, N> &value) : value(value)
+    {
+    }
+    std::size_t size() const noexcept
+    {
+        std::cout << ".size()" << std::endl;
+        return N;
+    }
+    decltype(IsArray<T>::addWrapper(std::declval<T &>())) operator[](std::size_t index) noexcept
+    {
+        std::cout << "[" << index << "]";
+        return IsArray<T>::addWrapper(value[index]);
+    }
+};
 int main()
 {
     world::initAll();
     MyBlock::init();
+    logging::setGlobalLevel(logging::Level::Debug);
     world::World theWorld;
-    std::array<std::array<std::array<block::Block, 10>, 10>, 10> blocks;
+    constexpr std::size_t blocksSize = 2;
+    typedef std::array<std::array<std::array<block::Block, blocksSize>, blocksSize>, blocksSize>
+        Blocks;
+    Blocks blocks;
     for(auto &i : blocks)
         for(auto &j : i)
             for(auto &block : j)
                 block = block::Block(block::builtin::Air::get()->blockKind);
-    theWorld.hashlifeWorld->setBlocks(
-        blocks, util::Vector3I32(-5), util::Vector3I32(0), util::Vector3I32(10));
+    blocks[blocksSize / 2][blocksSize / 2][blocksSize / 2] =
+        block::Block(MyBlock::get(MyBlock::State::Started)->blockKind);
+    theWorld.hashlifeWorld->setBlocks(DumpAccessArrayWrapper<Blocks>(blocks),
+                                      util::Vector3I32(0),
+                                      util::Vector3I32(0),
+                                      util::Vector3I32(blocksSize));
+    for(util::Vector3I32 p(-5); p.x < 5; p.x++)
+    {
+        for(p.y = -5; p.y < 5; p.y++)
+        {
+            for(p.z = -5; p.z < 5; p.z++)
+            {
+                auto blockKind = theWorld.hashlifeWorld->get(p).getBlockKind();
+                if(blockKind == block::BlockKind::empty())
+                    continue;
+                std::cout.width(3);
+                std::cout << p.x;
+                std::cout << " ";
+                std::cout.width(3);
+                std::cout << p.y;
+                std::cout << " ";
+                std::cout.width(3);
+                std::cout << p.z;
+                std::cout << " ";
+                std::cout << blockKind.value;
+                std::cout << std::endl;
+            }
+        }
+    }
     for(std::size_t step = 0; step < 20; step++)
     {
         auto actions = theWorld.hashlifeWorld->stepAndCollectGarbage(

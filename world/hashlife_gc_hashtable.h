@@ -26,6 +26,8 @@
 #include "../util/hash.h"
 #include "../util/constexpr_assert.h"
 #include <vector>
+#include <array>
+#include <memory>
 
 namespace programmerjake
 {
@@ -41,7 +43,7 @@ class HashlifeGarbageCollectedHashtable final
 
 private:
     static constexpr std::size_t bucketCount = 1UL << 17;
-    HashlifeNodeBase **const buckets;
+    std::array<HashlifeNodeBase *, bucketCount> &buckets;
     HashlifeNodeBase *canonicalEmptyNodes[HashlifeNodeBase::maxLevel + 1];
     std::size_t nodeCount;
     HashlifeNodeBase *collectPendingNodeQueueHead;
@@ -116,12 +118,13 @@ private:
 
 public:
     HashlifeGarbageCollectedHashtable()
-        : buckets(new HashlifeNodeBase *[bucketCount]),
+        : buckets(*new std::array<HashlifeNodeBase *, bucketCount>()),
           canonicalEmptyNodes{},
           nodeCount(0),
           collectPendingNodeQueueHead(nullptr),
           collectPendingNodeQueueTail(nullptr)
     {
+        buckets.fill(nullptr);
     }
     ~HashlifeGarbageCollectedHashtable()
     {
@@ -135,7 +138,7 @@ public:
                 pNode = next;
             }
         }
-        delete[] buckets;
+        delete &buckets;
     }
     HashlifeNodeBase *findOrAddNode(const HashlifeNodeBase &nodeIn)
     {

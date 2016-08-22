@@ -162,7 +162,7 @@ public:
     constexpr std::int32_t getChildPosition(std::int32_t position) const
     {
         return (constexprAssert(isPositionInside(position)),
-                position > 0 ? position - getQuarterSize() : position + getQuarterSize());
+                position >= 0 ? position - getQuarterSize() : position + getQuarterSize());
     }
     constexpr util::Vector3U32 getIndex(util::Vector3I32 position) const
     {

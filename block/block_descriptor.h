@@ -375,9 +375,9 @@ protected:
 
 public:
     virtual ~BlockDescriptor() = default;
+    const lighting::LightProperties lightProperties;
     const BlockKind blockKind;
     const std::string name;
-    const lighting::LightProperties lightProperties;
     virtual BlockStepPartOutput stepNXNYNZ(const BlockStepInput &stepInput,
                                            const block::BlockStepGlobalState &stepGlobalState) const
     {

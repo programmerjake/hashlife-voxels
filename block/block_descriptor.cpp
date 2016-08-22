@@ -28,9 +28,9 @@ namespace block
 {
 BlockDescriptor::BlockDescriptor(std::string name,
                                  lighting::LightProperties lightProperties) noexcept
-    : blockKind(BlockKind::allocate()),
-      name(std::move(name)),
-      lightProperties(lightProperties)
+    : lightProperties(lightProperties),
+      blockKind(BlockKind::allocate()),
+      name(std::move(name))
 {
     auto &descriptorsLookupTable = getDescriptorsLookupTable();
     if(descriptorsLookupTable.size() <= blockKind.value)

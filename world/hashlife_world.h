@@ -489,6 +489,9 @@ private:
                                 util::Vector3I32 size)
     {
         constexprAssert(size.min() >= 0);
+        constexprAssert(sourcePosition.x + size.x <= blocksArray.size());
+        constexprAssert(sourcePosition.y + size.y <= blocksArray[0].size());
+        constexprAssert(sourcePosition.z + size.z <= blocksArray[0][0].size());
         constexprAssert(node->isPositionInside(targetPosition));
         if(size.min() == 0)
             return node;
@@ -507,7 +510,7 @@ private:
                         auto inputPosition =
                             position - util::Vector3I32(HashlifeNodeBase::levelSize / 2);
                         if((inputPosition - targetPosition).min() < 0
-                           || (targetPosition + size - inputPosition).max() < 0)
+                           || (inputPosition - targetPosition - size).max() >= 0)
                         {
                             blocks[position.x][position.y][position.z] =
                                 static_cast<HashlifeLeafNode *>(node)
