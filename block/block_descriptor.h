@@ -199,7 +199,6 @@ struct BlockStepExtraAction final
 
 struct BlockStepExtraActions final
 {
-#if 1
     std::unique_ptr<std::list<BlockStepExtraAction>> actions;
     void merge(BlockStepExtraActions newActions)
     {
@@ -276,71 +275,6 @@ struct BlockStepExtraActions final
             }
         }
     }
-#else
-    util::Optional<std::list<BlockStepExtraAction>> actions;
-    void merge(BlockStepExtraActions newActions)
-    {
-        if(newActions.actions)
-        {
-            if(actions)
-                actions->splice(actions->end(), std::move(*newActions.actions));
-            else
-                actions = std::move(newActions.actions);
-        }
-    }
-    bool empty() const
-    {
-        return !actions;
-    }
-    constexpr BlockStepExtraActions() : actions()
-    {
-    }
-    explicit BlockStepExtraActions(std::list<BlockStepExtraAction> actions)
-        : actions(std::move(actions))
-    {
-    }
-    explicit BlockStepExtraActions(BlockStepExtraAction action) : actions()
-    {
-        actions.emplace();
-        actions->push_back(std::move(action));
-    }
-    BlockStepExtraActions &addOffset(util::Vector3I32 offset) &
-    {
-        if(offset != util::Vector3I32(0) && actions)
-        {
-            for(auto &action : *actions)
-                action.addOffset(offset);
-        }
-        return *this;
-    }
-    BlockStepExtraActions &&addOffset(util::Vector3I32 offset) &&
-    {
-        return std::move(addOffset(offset));
-    }
-    BlockStepExtraActions &operator+=(BlockStepExtraActions rt)
-    {
-        merge(std::move(rt));
-        return *this;
-    }
-    BlockStepExtraActions operator+(BlockStepExtraActions rt) const &
-    {
-        return BlockStepExtraActions(*this) += std::move(rt);
-    }
-    BlockStepExtraActions operator+(BlockStepExtraActions rt) &&
-    {
-        return BlockStepExtraActions(std::move(*this)) += std::move(rt);
-    }
-    void run(world::World &theWorld, world::Dimension dimension) const
-    {
-        if(actions)
-        {
-            for(auto &action : *actions)
-            {
-                action.run(theWorld, dimension);
-            }
-        }
-    }
-#endif
 };
 
 struct BlockStepPartOutput final
