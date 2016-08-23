@@ -118,6 +118,7 @@ public:
 template <typename T>
 struct BasicColor final
 {
+    typedef T ValueType;
     T red;
     T green;
     T blue;

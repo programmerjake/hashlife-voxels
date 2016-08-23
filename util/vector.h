@@ -89,6 +89,7 @@ struct VectorImplementation final
 template <typename T>
 struct Vector3
 {
+    typedef T ValueType;
     T x;
     T y;
     T z;
