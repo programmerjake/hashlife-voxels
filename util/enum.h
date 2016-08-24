@@ -252,6 +252,61 @@ constexpr typename EnumTraits<EnumType>::ValuesType::const_iterator
 {
     return const_iterator(valuesImplementation.end());
 }
+
+template <typename T, typename EnumType>
+struct EnumArray final
+{
+    typedef EnumType index_type;
+    typedef T value_type;
+    T values[EnumTraits<EnumType>::size];
+    typedef T *iterator;
+    typedef const T *const_iterator;
+    constexpr std::size_t size() const noexcept
+    {
+        return EnumTraits<EnumType>::size;
+    }
+    static_assert(EnumTraits<EnumType>::size > 0, "");
+    constexpr bool empty() const noexcept
+    {
+        return false;
+    }
+    iterator begin()
+    {
+        return &values[0];
+    }
+    iterator end()
+    {
+        return begin() + size();
+    }
+    constexpr const_iterator begin() const
+    {
+        return &values[0];
+    }
+    constexpr const_iterator end() const
+    {
+        return begin() + size();
+    }
+    constexpr const_iterator iteratorTo(EnumType index) const
+    {
+        return &values[static_cast<typename EnumTraits<EnumType>::underlying_type>(index)
+                       - static_cast<typename EnumTraits<EnumType>::underlying_type>(
+                             EnumTraits<EnumType>::min)];
+    }
+    iterator iteratorTo(EnumType index)
+    {
+        return &values[static_cast<typename EnumTraits<EnumType>::underlying_type>(index)
+                       - static_cast<typename EnumTraits<EnumType>::underlying_type>(
+                             EnumTraits<EnumType>::min)];
+    }
+    constexpr const T &operator[](EnumType index) const
+    {
+        return *iteratorTo(index);
+    }
+    T &operator[](EnumType index)
+    {
+        return *iteratorTo(index);
+    }
+};
 }
 }
 }

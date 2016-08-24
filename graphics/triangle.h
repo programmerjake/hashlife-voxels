@@ -174,12 +174,33 @@ struct TriangleWithoutNormal
 {
     static constexpr std::size_t vertexCount = 3;
     VertexWithoutNormal vertices[vertexCount];
+    constexpr TriangleWithoutNormal() : vertices()
+    {
+    }
+    constexpr TriangleWithoutNormal(VertexWithoutNormal vertex1,
+                                    VertexWithoutNormal vertex2,
+                                    VertexWithoutNormal vertex3)
+        : vertices{vertex1, vertex2, vertex3}
+    {
+    }
 };
+
+static_assert(std::is_trivially_destructible<TriangleWithoutNormal>::value
+                  && std::is_standard_layout<TriangleWithoutNormal>::value,
+              "");
+
 
 struct Triangle
 {
     static constexpr std::size_t vertexCount = 3;
     Vertex vertices[vertexCount];
+    constexpr Triangle() : vertices()
+    {
+    }
+    constexpr Triangle(Vertex vertex1, Vertex vertex2, Vertex vertex3)
+        : vertices{vertex1, vertex2, vertex3}
+    {
+    }
 };
 
 static_assert(std::is_trivially_destructible<Triangle>::value

@@ -72,22 +72,21 @@ private:
           generation(generation)
     {
     }
-    static std::array<std::array<const MyBlock *,
-                                 block::BlockStepGlobalState::stepSizeInGenerations>,
-                      util::EnumTraits<State>::size>
+    static util::EnumArray<std::array<const MyBlock *,
+                                      block::BlockStepGlobalState::stepSizeInGenerations>,
+                           State>
         make()
     {
-        std::array<std::array<const MyBlock *, block::BlockStepGlobalState::stepSizeInGenerations>,
-                   util::EnumTraits<State>::size> retval;
+        util::EnumArray<std::array<const MyBlock *,
+                                   block::BlockStepGlobalState::stepSizeInGenerations>,
+                        State> retval;
         for(auto state : util::EnumTraits<State>::values)
         {
             for(std::uint32_t generation = 0;
                 generation < block::BlockStepGlobalState::stepSizeInGenerations;
                 generation++)
             {
-                retval[util::EnumIterator<State>(state)
-                       - util::EnumTraits<State>::values.begin()][generation] =
-                    new MyBlock(state, generation);
+                retval[state][generation] = new MyBlock(state, generation);
             }
         }
         return retval;
@@ -96,20 +95,19 @@ private:
 public:
     const State state;
     const std::uint32_t generation;
-    static const std::array<std::array<const MyBlock *,
-                                       block::BlockStepGlobalState::stepSizeInGenerations>,
-                            util::EnumTraits<State>::size> &
+    static const util::EnumArray<std::array<const MyBlock *,
+                                            block::BlockStepGlobalState::stepSizeInGenerations>,
+                                 State> &
         get()
     {
-        static const std::array<std::array<const MyBlock *,
-                                           block::BlockStepGlobalState::stepSizeInGenerations>,
-                                util::EnumTraits<State>::size> retval = make();
+        static const util::EnumArray<std::array<const MyBlock *,
+                                                block::BlockStepGlobalState::stepSizeInGenerations>,
+                                     State> retval = make();
         return retval;
     }
     static const MyBlock *get(State state, std::uint32_t generation)
     {
-        return get()[util::EnumIterator<State>(state)
-                     - util::EnumTraits<State>::values.begin()][generation];
+        return get()[state][generation];
     }
     static void init()
     {
@@ -126,7 +124,8 @@ public:
             if(generation == 0)
                 return {block::builtin::Air::get()->blockKind};
             return {get(State::Done,
-                        (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
+                        (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)
+                        ->blockKind};
         case State::Started:
         {
             return block::BlockStepPartOutput(
