@@ -93,10 +93,97 @@ FileInputStream::ReadBytesResult FileInputStream::readBytes(
     std::size_t bufferSize,
     const std::chrono::steady_clock::time_point *timeout)
 {
-#error finish
+    if(!implementation)
+        return ReadBytesResult(0, true);
+    std::clearerr(implementation->file);
+    auto readCount = std::fread(buffer, sizeof(unsigned char), bufferSize, implementation->file);
+    int error = errno;
+    if(std::ferror(implementation->file))
+        throw IOError(error, std::generic_category(), "fread failed");
+    return ReadBytesResult(readCount, std::feof(implementation->file));
 }
 
 void FileInputStream::close()
+{
+    if(implementation)
+        implementation->close();
+}
+
+struct FileOutputStream::Implementation final
+{
+    std::FILE *file;
+    explicit Implementation(FILE *file) : file(file)
+    {
+    }
+    void close()
+    {
+        if(std::fclose(file) != 0)
+        {
+            file = nullptr;
+            throw IOError(errno, std::generic_category(), "fclose failed");
+        }
+        file = nullptr;
+    }
+    ~Implementation()
+    {
+        std::fclose(file);
+    }
+};
+
+FileOutputStream::FileOutputStream(std::string fileName)
+{
+#ifdef _WIN32
+    typedef std::wstring FileNameType;
+#else
+    typedef std::string FileNameType;
+#endif
+    auto convertedFileName = util::text::stringCast<FileNameType>(std::move(fileName));
+#ifdef _WIN32
+    auto *file = ::_wfopen(convertedFileName.c_str(), "wbNS");
+#elif defined(__linux)
+    auto *file = std::fopen(convertedFileName.c_str(), "wbe");
+#else
+    auto *file = std::fopen(convertedFileName.c_str(), "wb");
+#endif
+    if(!file)
+    {
+        int error = errno;
+        throw IOError(error, std::generic_category(), "fopen failed");
+    }
+    try
+    {
+        implementation = new Implementation(file);
+    }
+    catch(...)
+    {
+        std::fclose(file);
+        throw;
+    }
+}
+
+FileOutputStream::~FileOutputStream()
+{
+    delete implementation;
+}
+
+void FileOutputStream::writeBytes(const unsigned char *buffer, std::size_t bufferSize)
+{
+    constexprAssert(implementation);
+    auto result = std::fwrite(buffer, sizeof(unsigned char), bufferSize, implementation->file);
+    if(result != bufferSize)
+    {
+        int error = errno;
+        throw IOError(error, std::generic_category(), "fwrite failed");
+    }
+}
+
+void FileOutputStream::flush()
+{
+    if(implementation)
+        std::fflush(implementation->file);
+}
+
+void FileOutputStream::close()
 {
     if(implementation)
         implementation->close();

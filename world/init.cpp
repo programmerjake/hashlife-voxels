@@ -21,6 +21,7 @@
 #include "init.h"
 #include "dimension.h"
 #include "../block/builtin/init.h"
+#include "../graphics/image.h"
 
 namespace programmerjake
 {
@@ -30,6 +31,7 @@ namespace world
 {
 void initAll()
 {
+    graphics::Image::init();
     Dimension::init();
     block::builtin::init();
 }

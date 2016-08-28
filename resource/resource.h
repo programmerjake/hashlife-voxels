@@ -22,12 +22,25 @@
 #ifndef RESOURCE_RESOURCE_H_
 #define RESOURCE_RESOURCE_H_
 
+#include <memory>
+#include <string>
+
 namespace programmerjake
 {
 namespace voxels
 {
+namespace io
+{
+struct InputStream;
+}
+namespace graphics
+{
+class Image;
+}
 namespace resource
 {
+std::shared_ptr<io::InputStream> readResource(std::string name);
+std::shared_ptr<graphics::Image> readResourceImage(std::string name);
 }
 }
 }

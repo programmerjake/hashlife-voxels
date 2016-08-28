@@ -26,6 +26,7 @@
 #include "../util/vector.h"
 #include "texture_coordinates.h"
 #include "color.h"
+#include "texture.h"
 
 namespace programmerjake
 {
@@ -174,13 +175,15 @@ struct TriangleWithoutNormal
 {
     static constexpr std::size_t vertexCount = 3;
     VertexWithoutNormal vertices[vertexCount];
-    constexpr TriangleWithoutNormal() : vertices()
+    TextureId texture;
+    constexpr TriangleWithoutNormal() : vertices(), texture()
     {
     }
     constexpr TriangleWithoutNormal(VertexWithoutNormal vertex1,
                                     VertexWithoutNormal vertex2,
-                                    VertexWithoutNormal vertex3)
-        : vertices{vertex1, vertex2, vertex3}
+                                    VertexWithoutNormal vertex3,
+                                    TextureId texture)
+        : vertices{vertex1, vertex2, vertex3}, texture(texture)
     {
     }
 };
@@ -189,16 +192,16 @@ static_assert(std::is_trivially_destructible<TriangleWithoutNormal>::value
                   && std::is_standard_layout<TriangleWithoutNormal>::value,
               "");
 
-
 struct Triangle
 {
     static constexpr std::size_t vertexCount = 3;
     Vertex vertices[vertexCount];
-    constexpr Triangle() : vertices()
+    TextureId texture;
+    constexpr Triangle() : vertices(), texture()
     {
     }
-    constexpr Triangle(Vertex vertex1, Vertex vertex2, Vertex vertex3)
-        : vertices{vertex1, vertex2, vertex3}
+    constexpr Triangle(Vertex vertex1, Vertex vertex2, Vertex vertex3, TextureId texture)
+        : vertices{vertex1, vertex2, vertex3}, texture(texture)
     {
     }
 };

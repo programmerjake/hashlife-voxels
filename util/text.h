@@ -177,9 +177,17 @@ struct EncodedCharacter final
     constexpr EncodedCharacter() : chars(), used(0)
     {
     }
+
+private:
+    static constexpr CharType implicitConversionHelper(CharType ch) noexcept
+    {
+        return ch;
+    }
+
+public:
     template <typename... Args>
     constexpr EncodedCharacter(Args &&... args)
-        : chars{std::forward<Args>(args)...}, used(sizeof...(args))
+        : chars{implicitConversionHelper(std::forward<Args>(args))...}, used(sizeof...(args))
     {
         static_assert(sizeof...(args) <= maxChars, "");
     }
@@ -216,7 +224,7 @@ struct EncodedCharacter final
     friend std::basic_ostream<CharType, Traits> &operator<<(
         std::basic_ostream<CharType, Traits> &os, const EncodedCharacter &a)
     {
-        os << static_cast<std::basic_string<CharType, Traits>>(*this);
+        os << static_cast<std::basic_string<CharType, Traits>>(a);
         return os;
     }
 };
@@ -529,8 +537,8 @@ struct StringCastHelper<std::basic_string<CharType, TargetTraits, TargetAllocato
         const std::basic_string<CharType, SourceTraits, SourceAllocator> &source,
         const ConvertOptions &)
     {
-        return std::basic_string<CharType, TargetTraits, TargetAllocator> retval(source.begin(),
-                                                                                 source.end());
+        return std::basic_string<CharType, TargetTraits, TargetAllocator>(source.begin(),
+                                                                          source.end());
     }
 };
 

@@ -19,11 +19,10 @@
  *
  */
 
-#ifndef GRAPHICS_TEXTURE_H_
-#define GRAPHICS_TEXTURE_H_
+#ifndef GRAPHICS_IMAGE_LOADER_PNG_IMAGE_LOADER_H_
+#define GRAPHICS_IMAGE_LOADER_PNG_IMAGE_LOADER_H_
 
-#include <memory>
-#include <utility>
+#include "../image.h"
 
 namespace programmerjake
 {
@@ -31,23 +30,21 @@ namespace voxels
 {
 namespace graphics
 {
-class TextureImplementation;
-class Image;
-
-struct TextureId final
+namespace image_loader
 {
-    TextureImplementation *value;
-    constexpr explicit TextureId(TextureImplementation *value) : value(value)
-    {
-    }
-    constexpr TextureId() : value()
-    {
-    }
-    static TextureId makeTexture(const std::shared_ptr<const Image> &image);
-    void setNewImageData(const std::shared_ptr<const Image> &image) const;
+struct PNGImageLoader final : public Image::Loader
+{
+    PNGImageLoader();
+    virtual bool signatureMatches(const unsigned char *bytes, std::size_t byteCount) const
+        noexcept override;
+    virtual std::shared_ptr<Image> load(
+        const std::shared_ptr<io::InputStream> &inputStream) const override;
+private:
+    struct Implementation;
 };
 }
 }
 }
+}
 
-#endif /* GRAPHICS_TEXTURE_H_ */
+#endif /* GRAPHICS_IMAGE_LOADER_PNG_IMAGE_LOADER_H_ */

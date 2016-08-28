@@ -18,36 +18,25 @@
  * MA 02110-1301, USA.
  *
  */
-
-#ifndef GRAPHICS_TEXTURE_H_
-#define GRAPHICS_TEXTURE_H_
-
-#include <memory>
-#include <utility>
+#include "resource.h"
+#include "../io/file_stream.h"
+#include "../graphics/image.h"
 
 namespace programmerjake
 {
 namespace voxels
 {
-namespace graphics
+namespace resource
 {
-class TextureImplementation;
-class Image;
-
-struct TextureId final
+std::shared_ptr<io::InputStream> readResource(std::string name)
 {
-    TextureImplementation *value;
-    constexpr explicit TextureId(TextureImplementation *value) : value(value)
-    {
-    }
-    constexpr TextureId() : value()
-    {
-    }
-    static TextureId makeTexture(const std::shared_ptr<const Image> &image);
-    void setNewImageData(const std::shared_ptr<const Image> &image) const;
-};
-}
-}
+    return std::make_shared<io::FileInputStream>("res/" + name);
 }
 
-#endif /* GRAPHICS_TEXTURE_H_ */
+std::shared_ptr<graphics::Image> readResourceImage(std::string name)
+{
+    return graphics::Image::load(readResource(std::move(name)));
+}
+}
+}
+}

@@ -45,12 +45,10 @@ struct InputStream : virtual public StreamBase
         {
         }
     };
-    virtual ReadBytesResult readBytes(
-        unsigned char *buffer,
-        std::size_t bufferSize,
-        const std::chrono::steady_clock::time_point *timeout) = 0;
-    ReadBytesResult readBytes(unsigned char *buffer,
-                              std::size_t bufferSize)
+    virtual ReadBytesResult readBytes(unsigned char *buffer,
+                                      std::size_t bufferSize,
+                                      const std::chrono::steady_clock::time_point *timeout) = 0;
+    ReadBytesResult readBytes(unsigned char *buffer, std::size_t bufferSize)
     {
         return readBytes(buffer, bufferSize, nullptr);
     }
@@ -64,16 +62,23 @@ struct InputStream : virtual public StreamBase
     {
         return readBytes(buffer, bufferSize, std::chrono::steady_clock::time_point::min());
     }
-    void readAllBytes(unsigned char *buffer, std::size_t bufferSize)
+    std::size_t readAllBytes(unsigned char *buffer,
+                             std::size_t bufferSize,
+                             bool throwOnEarlyEOF = true)
     {
+        std::size_t retval = 0;
         while(bufferSize != 0)
         {
             auto result = readBytes(buffer, bufferSize);
+            retval += result.readCount;
             bufferSize -= result.readCount;
             buffer += result.readCount;
-            if(bufferSize != 0 && result.hitEOF)
-                throw EOFError();
+            if(result.hitEOF)
+                break;
         }
+        if(bufferSize != 0 && throwOnEarlyEOF)
+            throw EOFError();
+        return retval;
     }
     unsigned char readByte()
     {
