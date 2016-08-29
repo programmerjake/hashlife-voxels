@@ -21,6 +21,7 @@
 #include "resource.h"
 #include "../io/file_stream.h"
 #include "../graphics/image.h"
+#include "../graphics/texture.h"
 
 namespace programmerjake
 {
@@ -36,6 +37,11 @@ std::shared_ptr<io::InputStream> readResource(std::string name)
 std::shared_ptr<graphics::Image> readResourceImage(std::string name)
 {
     return graphics::Image::load(readResource(std::move(name)));
+}
+
+graphics::TextureId readResourceTexture(std::string name)
+{
+    return graphics::TextureId::makeTexture(readResourceImage(std::move(name)));
 }
 }
 }

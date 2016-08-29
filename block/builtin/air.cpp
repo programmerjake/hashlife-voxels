@@ -28,7 +28,16 @@ namespace block
 {
 namespace builtin
 {
-Air::Air() : BlockDescriptor("builtin.air", lighting::LightProperties::transparent())
+Air::Air()
+    : BlockDescriptor("builtin.air",
+                      lighting::LightProperties::transparent(),
+                      BlockedFaces{{false, false, false, false, false, false}})
+{
+}
+
+void Air::render(graphics::MemoryRenderBuffer &renderBuffer,
+                 const BlockStepInput &stepInput,
+                 const block::BlockStepGlobalState &stepGlobalState) const
 {
 }
 }

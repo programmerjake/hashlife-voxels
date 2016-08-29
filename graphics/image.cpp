@@ -35,6 +35,7 @@ const Image::Loader *Image::Loader::head = nullptr;
 
 std::shared_ptr<Image> Image::load(const std::shared_ptr<io::InputStream> &inputStream)
 {
+    init();
     std::size_t signatureSize = 1;
     for(auto *loader = Loader::head; loader != nullptr; loader = loader->next)
     {
@@ -75,7 +76,8 @@ void Image::init()
     {
         registerLoader(std::unique_ptr<Loader>(new image_loader::PNGImageLoader));
         return true;
-    };
+    }();
+    static_cast<void>(registeredLoaders);
 }
 }
 }

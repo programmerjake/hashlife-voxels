@@ -226,9 +226,9 @@ private:
         {
             static_assert(HashlifeNodeBase::levelSize == 2, "");
             static constexpr std::int32_t intermediateSize = HashlifeNodeBase::levelSize * 2 - 1;
-            std::array<std::array<std::array<HashlifeNodeBase *, intermediateSize>,
-                                  intermediateSize>,
-                       intermediateSize> intermediate;
+            util::array<util::array<util::array<HashlifeNodeBase *, intermediateSize>,
+                                    intermediateSize>,
+                        intermediateSize> intermediate;
             for(util::Vector3I32 chunkPos(0); chunkPos.x < intermediateSize; chunkPos.x++)
             {
                 for(chunkPos.y = 0; chunkPos.y < intermediateSize; chunkPos.y++)
@@ -590,7 +590,7 @@ public:
     }
     void setBlock(block::Block block, util::Vector3I32 position)
     {
-        std::array<std::array<std::array<block::Block, 1>, 1>, 1> blocks;
+        util::array<util::array<util::array<block::Block, 1>, 1>, 1> blocks;
         blocks[0][0][0] = block;
         setBlocks(blocks, position, util::Vector3I32(0), util::Vector3I32(1));
     }

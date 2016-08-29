@@ -27,6 +27,7 @@
 #include "texture_coordinates.h"
 #include "color.h"
 #include "texture.h"
+#include "transform.h"
 
 namespace programmerjake
 {
@@ -103,6 +104,13 @@ struct VertexWithoutNormal
           colorOpacity(color.opacity)
     {
     }
+    friend constexpr VertexWithoutNormal transform(const Transform &tform,
+                                                   const VertexWithoutNormal &vertex) noexcept
+    {
+        return VertexWithoutNormal(transform(tform, vertex.getPosition()),
+                                   vertex.getTextureCoordinates(),
+                                   vertex.getColor());
+    }
 };
 
 struct Vertex : public VertexWithoutNormal
@@ -153,6 +161,13 @@ struct Vertex : public VertexWithoutNormal
           normalZ(normal.z)
     {
     }
+    friend constexpr Vertex transform(const Transform &tform, const Vertex &vertex) noexcept
+    {
+        return Vertex(transform(tform, vertex.getPosition()),
+                      vertex.getTextureCoordinates(),
+                      vertex.getColor(),
+                      transformNormal(tform, vertex.getNormal()));
+    }
 };
 
 constexpr util::Vector3F getTriangleNormalUnnormalized(util::Vector3F position1,
@@ -186,11 +201,15 @@ struct TriangleWithoutNormal
         : vertices{vertex1, vertex2, vertex3}, texture(texture)
     {
     }
+    friend constexpr TriangleWithoutNormal transform(const Transform &tform,
+                                                     const TriangleWithoutNormal &triangle) noexcept
+    {
+        return TriangleWithoutNormal(transform(tform, triangle.vertices[0]),
+                                     transform(tform, triangle.vertices[1]),
+                                     transform(tform, triangle.vertices[2]),
+                                     triangle.texture);
+    }
 };
-
-static_assert(std::is_trivially_destructible<TriangleWithoutNormal>::value
-                  && std::is_standard_layout<TriangleWithoutNormal>::value,
-              "");
 
 struct Triangle
 {
@@ -204,11 +223,14 @@ struct Triangle
         : vertices{vertex1, vertex2, vertex3}, texture(texture)
     {
     }
+    friend constexpr Triangle transform(const Transform &tform, const Triangle &triangle) noexcept
+    {
+        return Triangle(transform(tform, triangle.vertices[0]),
+                        transform(tform, triangle.vertices[1]),
+                        transform(tform, triangle.vertices[2]),
+                        triangle.texture);
+    }
 };
-
-static_assert(std::is_trivially_destructible<Triangle>::value
-                  && std::is_standard_layout<Triangle>::value,
-              "");
 }
 }
 }

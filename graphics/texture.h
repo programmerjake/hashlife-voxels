@@ -24,6 +24,7 @@
 
 #include <memory>
 #include <utility>
+#include "texture_coordinates.h"
 
 namespace programmerjake
 {
@@ -31,7 +32,15 @@ namespace voxels
 {
 namespace graphics
 {
-class TextureImplementation;
+class TextureImplementation
+{
+protected:
+    TextureImplementation() = default;
+
+public:
+    virtual ~TextureImplementation() = default;
+};
+
 class Image;
 
 struct TextureId final
@@ -45,6 +54,26 @@ struct TextureId final
     }
     static TextureId makeTexture(const std::shared_ptr<const Image> &image);
     void setNewImageData(const std::shared_ptr<const Image> &image) const;
+};
+
+struct Texture final
+{
+    TextureId textureId;
+    TextureCoordinates nunv;
+    TextureCoordinates pupv;
+    constexpr Texture(TextureId textureId)
+        : textureId(textureId),
+          nunv(TextureCoordinates::minUMinV()),
+          pupv(TextureCoordinates::maxUMaxV())
+    {
+    }
+    constexpr Texture() : Texture(TextureId())
+    {
+    }
+    constexpr Texture(TextureId textureId, TextureCoordinates nunv, TextureCoordinates pupv)
+        : textureId(textureId), nunv(nunv), pupv(pupv)
+    {
+    }
 };
 }
 }

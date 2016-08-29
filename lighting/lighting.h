@@ -26,6 +26,7 @@
 #include "../graphics/color.h"
 #include "../util/vector.h"
 #include "../util/interpolate.h"
+#include "../util/constexpr_array.h"
 
 namespace programmerjake
 {
@@ -281,7 +282,7 @@ struct LightProperties final
 
 struct BlockLighting final
 {
-    std::array<std::array<std::array<float, 2>, 2>, 2> lightValues;
+    util::array<util::array<util::array<float, 2>, 2>, 2> lightValues;
     constexpr graphics::ColorF eval(util::Vector3F relativePosition) const
     {
         using util::interpolate;
@@ -298,7 +299,7 @@ struct BlockLighting final
     }
 
 private:
-    float evalVertex(const std::array<std::array<std::array<float, 3>, 3>, 3> &blockValues,
+    float evalVertex(const util::array<util::array<util::array<float, 3>, 3>, 3> &blockValues,
                      util::Vector3I32 offset);
 
 public:
@@ -306,7 +307,7 @@ public:
     {
     }
     BlockLighting(
-        std::array<std::array<std::array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
+        util::array<util::array<util::array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
         const Lighting::GlobalProperties &globalProperties);
 
 private:

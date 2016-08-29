@@ -214,8 +214,7 @@ public:
         return *this;
     }
     Optional &operator=(Optional &&rt) noexcept(
-        std::is_nothrow_move_assignable<T>::value &&
-            std::is_nothrow_move_constructible<T>::value)
+        std::is_nothrow_move_assignable<T>::value &&std::is_nothrow_move_constructible<T>::value)
     {
         if(!implementation.isFull && rt.implementation.isFull)
         {

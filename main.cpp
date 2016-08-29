@@ -67,18 +67,20 @@ private:
         return ss.str();
     }
     explicit MyBlock(State state, std::uint32_t generation)
-        : BlockDescriptor(getName(state, generation), lighting::LightProperties::opaque()),
+        : BlockDescriptor(getName(state, generation),
+                          lighting::LightProperties::opaque(),
+                          BlockedFaces{{false, false, false, false, false, false}}),
           state(state),
           generation(generation)
     {
     }
-    static util::EnumArray<std::array<const MyBlock *,
-                                      block::BlockStepGlobalState::stepSizeInGenerations>,
+    static util::EnumArray<util::array<const MyBlock *,
+                                       block::BlockStepGlobalState::stepSizeInGenerations>,
                            State>
         make()
     {
-        util::EnumArray<std::array<const MyBlock *,
-                                   block::BlockStepGlobalState::stepSizeInGenerations>,
+        util::EnumArray<util::array<const MyBlock *,
+                                    block::BlockStepGlobalState::stepSizeInGenerations>,
                         State> retval;
         for(auto state : util::EnumTraits<State>::values)
         {
@@ -95,14 +97,15 @@ private:
 public:
     const State state;
     const std::uint32_t generation;
-    static const util::EnumArray<std::array<const MyBlock *,
-                                            block::BlockStepGlobalState::stepSizeInGenerations>,
+    static const util::EnumArray<util::array<const MyBlock *,
+                                             block::BlockStepGlobalState::stepSizeInGenerations>,
                                  State> &
         get()
     {
-        static const util::EnumArray<std::array<const MyBlock *,
-                                                block::BlockStepGlobalState::stepSizeInGenerations>,
-                                     State> retval = make();
+        static const util::
+            EnumArray<util::array<const MyBlock *,
+                                  block::BlockStepGlobalState::stepSizeInGenerations>,
+                      State> retval = make();
         return retval;
     }
     static const MyBlock *get(State state, std::uint32_t generation)
@@ -112,6 +115,11 @@ public:
     static void init()
     {
         get();
+    }
+    virtual void render(graphics::MemoryRenderBuffer &renderBuffer,
+                        const block::BlockStepInput &stepInput,
+                        const block::BlockStepGlobalState &stepGlobalState) const override
+    {
     }
     virtual block::BlockStepPartOutput stepFromCXCYCZ(
         const block::BlockStepInput &stepInput,
@@ -228,20 +236,20 @@ struct IsArray
     }
 };
 template <typename T, std::size_t N>
-struct IsArray<std::array<T, N>>
+struct IsArray<util::array<T, N>>
 {
     static constexpr bool value = true;
-    static DumpAccessArrayWrapper<std::array<T, N>> addWrapper(std::array<T, N> &value) noexcept
+    static DumpAccessArrayWrapper<util::array<T, N>> addWrapper(util::array<T, N> &value) noexcept
     {
-        return DumpAccessArrayWrapper<std::array<T, N>>(value);
+        return DumpAccessArrayWrapper<util::array<T, N>>(value);
     }
 };
 
 template <typename T, std::size_t N>
-struct DumpAccessArrayWrapper<std::array<T, N>>
+struct DumpAccessArrayWrapper<util::array<T, N>>
 {
-    std::array<T, N> &value;
-    DumpAccessArrayWrapper(std::array<T, N> &value) : value(value)
+    util::array<T, N> &value;
+    DumpAccessArrayWrapper(util::array<T, N> &value) : value(value)
     {
     }
     std::size_t size() const noexcept
@@ -263,7 +271,7 @@ int main()
     logging::setGlobalLevel(logging::Level::Debug);
     world::World theWorld;
     constexpr std::size_t blocksSize = 8;
-    typedef std::array<std::array<std::array<block::Block, blocksSize>, blocksSize>, blocksSize>
+    typedef util::array<util::array<util::array<block::Block, blocksSize>, blocksSize>, blocksSize>
         Blocks;
     Blocks blocks;
     for(auto &i : blocks)

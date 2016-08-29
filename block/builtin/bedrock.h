@@ -19,10 +19,11 @@
  *
  */
 
-#ifndef BLOCK_BUILTIN_AIR_H_
-#define BLOCK_BUILTIN_AIR_H_
+#ifndef BLOCK_BUILTIN_BEDROCK_H_
+#define BLOCK_BUILTIN_BEDROCK_H_
 
 #include "../block_descriptor.h"
+#include "../../graphics/texture.h"
 
 namespace programmerjake
 {
@@ -32,15 +33,18 @@ namespace block
 {
 namespace builtin
 {
-class Air final : public BlockDescriptor
+class Bedrock final : public BlockDescriptor
 {
 private:
-    Air();
+    const graphics::TextureId bedrockTexture;
+
+private:
+    Bedrock();
 
 public:
-    static const Air *get()
+    static const Bedrock *get()
     {
-        static const Air *retval = new Air;
+        static const Bedrock *retval = new Bedrock;
         return retval;
     }
     static void init()
@@ -56,4 +60,4 @@ public:
 }
 }
 
-#endif /* BLOCK_BUILTIN_AIR_H_ */
+#endif /* BLOCK_BUILTIN_BEDROCK_H_ */

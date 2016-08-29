@@ -18,42 +18,24 @@
  * MA 02110-1301, USA.
  *
  */
-
-#ifndef BLOCK_BUILTIN_AIR_H_
-#define BLOCK_BUILTIN_AIR_H_
-
-#include "../block_descriptor.h"
+#include "texture.h"
+#include "driver.h"
 
 namespace programmerjake
 {
 namespace voxels
 {
-namespace block
+namespace graphics
 {
-namespace builtin
+TextureId TextureId::makeTexture(const std::shared_ptr<const Image> &image)
 {
-class Air final : public BlockDescriptor
-{
-private:
-    Air();
-
-public:
-    static const Air *get()
-    {
-        static const Air *retval = new Air;
-        return retval;
-    }
-    static void init()
-    {
-        get();
-    }
-    virtual void render(graphics::MemoryRenderBuffer &renderBuffer,
-                        const BlockStepInput &stepInput,
-                        const block::BlockStepGlobalState &stepGlobalState) const override;
-};
-}
-}
-}
+    return Driver::get().makeTexture(image);
 }
 
-#endif /* BLOCK_BUILTIN_AIR_H_ */
+void TextureId::setNewImageData(const std::shared_ptr<const Image> &image) const
+{
+    Driver::get().setNewImageData(*this, image);
+}
+}
+}
+}

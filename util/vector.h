@@ -166,13 +166,13 @@ private:
     template <typename U>
     constexpr Vector3<decltype(T() / U())> normalizeOrZeroHelper(U normValue) const noexcept
     {
-        return normValue ? *this / normValue : Vector3<decltype(T() / U())>{};
+        return normValue ? *this / Vector3<U>(normValue) : Vector3<decltype(T() / U())>{};
     }
 
     template <typename U>
     constexpr Vector3<decltype(T() / U())> normalizeNonzeroHelper(U normValue) const noexcept
     {
-        return (constexprAssert(normValue), *this / normValue);
+        return (constexprAssert(normValue), *this / Vector3<U>(normValue));
     }
 
 public:

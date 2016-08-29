@@ -22,6 +22,7 @@
 #include "dimension.h"
 #include "../block/builtin/init.h"
 #include "../graphics/image.h"
+#include "../graphics/driver.h"
 
 namespace programmerjake
 {
@@ -32,6 +33,7 @@ namespace world
 void initAll()
 {
     graphics::Image::init();
+    graphics::Driver::init();
     Dimension::init();
     block::builtin::init();
 }

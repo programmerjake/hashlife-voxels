@@ -27,7 +27,7 @@
 #include "../util/optional.h"
 #include "../block/block_descriptor.h"
 #include "../util/constexpr_assert.h"
-#include <array>
+#include "../util/constexpr_array.h"
 #include <type_traits>
 #include <list>
 #include <cstdint>
@@ -212,9 +212,9 @@ public:
         }
         HashlifeNodeBase *node;
         block::BlockStepGlobalState globalState;
-        typedef std::array<std::array<std::array<block::BlockStepExtraActions, levelSize>,
-                                      levelSize>,
-                           levelSize> ActionsArray;
+        typedef util::array<util::array<util::array<block::BlockStepExtraActions, levelSize>,
+                                        levelSize>,
+                            levelSize> ActionsArray;
         ActionsArray actions;
         constexpr FutureState() : node(nullptr), globalState(), actions()
         {
@@ -230,8 +230,8 @@ public:
         {
         }
     };
-    typedef std::array<std::array<std::array<HashlifeNodeBase *, levelSize>, levelSize>, levelSize>
-        ChildNodesArray;
+    typedef util::array<util::array<util::array<HashlifeNodeBase *, levelSize>, levelSize>,
+                        levelSize> ChildNodesArray;
 
 private:
     const ChildNodesArray childNodes;
@@ -344,7 +344,7 @@ public:
 class HashlifeLeafNode final : public HashlifeNodeBase
 {
 public:
-    typedef std::array<std::array<std::array<block::Block, levelSize>, levelSize>, levelSize>
+    typedef util::array<util::array<util::array<block::Block, levelSize>, levelSize>, levelSize>
         BlocksArray;
 
 private:

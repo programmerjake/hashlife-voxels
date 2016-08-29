@@ -39,6 +39,7 @@ struct PNGImageLoader final : public Image::Loader
         noexcept override;
     virtual std::shared_ptr<Image> load(
         const std::shared_ptr<io::InputStream> &inputStream) const override;
+
 private:
     struct Implementation;
 };

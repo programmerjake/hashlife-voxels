@@ -27,6 +27,8 @@
 #include <functional>
 #include <limits>
 #include "../lighting/lighting.h"
+#include "../util/enum.h"
+#include "../util/vector.h"
 
 namespace programmerjake
 {
@@ -135,6 +137,36 @@ struct Block final
         return a.value != b.value;
     }
 };
+
+enum class BlockFace : std::uint8_t
+{
+    XAxis = 0,
+    YAxis = 2,
+    ZAxis = 4,
+    NegativeDirection = 0,
+    PositiveDirection = 1,
+    NX = XAxis | NegativeDirection,
+    PX = XAxis | PositiveDirection,
+    NY = YAxis | NegativeDirection,
+    PY = YAxis | PositiveDirection,
+    NZ = ZAxis | NegativeDirection,
+    PZ = ZAxis | PositiveDirection,
+    DEFINE_ENUM_LIMITS(NX, PZ)
+};
+
+constexpr BlockFace reverse(BlockFace blockFace) noexcept
+{
+    return static_cast<BlockFace>(static_cast<std::uint8_t>(blockFace)
+                                  ^ (static_cast<std::uint8_t>(BlockFace::PositiveDirection)
+                                     ^ static_cast<std::uint8_t>(BlockFace::NegativeDirection)));
+}
+
+constexpr util::Vector3I32 getDirection(BlockFace blockFace) noexcept
+{
+    return util::Vector3I32(blockFace == BlockFace::NX ? -1 : blockFace == BlockFace::PX ? 1 : 0,
+                            blockFace == BlockFace::NY ? -1 : blockFace == BlockFace::PY ? 1 : 0,
+                            blockFace == BlockFace::NZ ? -1 : blockFace == BlockFace::PZ ? 1 : 0);
+}
 }
 }
 }

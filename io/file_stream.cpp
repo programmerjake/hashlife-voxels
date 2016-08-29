@@ -59,7 +59,7 @@ FileInputStream::FileInputStream(std::string fileName)
 #else
     typedef std::string FileNameType;
 #endif
-    auto convertedFileName = util::text::stringCast<FileNameType>(std::move(fileName));
+    auto convertedFileName = util::text::stringCast<FileNameType>(fileName);
 #ifdef _WIN32
     auto *file = ::_wfopen(convertedFileName.c_str(), "rbNS");
 #elif defined(__linux)
@@ -70,7 +70,7 @@ FileInputStream::FileInputStream(std::string fileName)
     if(!file)
     {
         int error = errno;
-        throw IOError(error, std::generic_category(), "fopen failed");
+        throw IOError(error, std::generic_category(), "fopen failed: " + std::move(fileName));
     }
     try
     {
@@ -137,7 +137,7 @@ FileOutputStream::FileOutputStream(std::string fileName)
 #else
     typedef std::string FileNameType;
 #endif
-    auto convertedFileName = util::text::stringCast<FileNameType>(std::move(fileName));
+    auto convertedFileName = util::text::stringCast<FileNameType>(fileName);
 #ifdef _WIN32
     auto *file = ::_wfopen(convertedFileName.c_str(), "wbNS");
 #elif defined(__linux)
@@ -148,7 +148,7 @@ FileOutputStream::FileOutputStream(std::string fileName)
     if(!file)
     {
         int error = errno;
-        throw IOError(error, std::generic_category(), "fopen failed");
+        throw IOError(error, std::generic_category(), "fopen failed: " + std::move(fileName));
     }
     try
     {

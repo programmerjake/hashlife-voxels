@@ -19,41 +19,36 @@
  *
  */
 
-#ifndef BLOCK_BUILTIN_AIR_H_
-#define BLOCK_BUILTIN_AIR_H_
+#ifndef GRAPHICS_DRIVER_H_
+#define GRAPHICS_DRIVER_H_
 
-#include "../block_descriptor.h"
+#include "image.h"
+#include "texture.h"
+#include <memory>
 
 namespace programmerjake
 {
 namespace voxels
 {
-namespace block
+namespace graphics
 {
-namespace builtin
-{
-class Air final : public BlockDescriptor
+class Driver
 {
 private:
-    Air();
+    class NullDriver;
 
 public:
-    static const Air *get()
-    {
-        static const Air *retval = new Air;
-        return retval;
-    }
+    virtual ~Driver() = default;
+    static Driver &get();
     static void init()
     {
         get();
     }
-    virtual void render(graphics::MemoryRenderBuffer &renderBuffer,
-                        const BlockStepInput &stepInput,
-                        const block::BlockStepGlobalState &stepGlobalState) const override;
+    virtual TextureId makeTexture(const std::shared_ptr<const Image> &image) = 0;
+    virtual void setNewImageData(TextureId texture, const std::shared_ptr<const Image> &image) = 0;
 };
 }
 }
 }
-}
 
-#endif /* BLOCK_BUILTIN_AIR_H_ */
+#endif /* GRAPHICS_DRIVER_H_ */

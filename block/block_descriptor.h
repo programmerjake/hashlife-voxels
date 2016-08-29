@@ -28,7 +28,7 @@
 #include "../util/optional.h"
 #include "../util/vector.h"
 #include "../world/position.h"
-#include <array>
+#include "../util/constexpr_array.h"
 #include <functional>
 #include <vector>
 #include <list>
@@ -93,7 +93,15 @@ namespace block
 {
 struct BlockStepInput final
 {
-    std::array<std::array<std::array<Block, 3>, 3>, 3> blocks;
+    util::array<util::array<util::array<Block, 3>, 3>, 3> blocks;
+    Block &operator[](util::Vector3I32 index) noexcept
+    {
+        return blocks[index.x + 1][index.y + 1][index.z + 1];
+    }
+    constexpr const Block &operator[](util::Vector3I32 index) const noexcept
+    {
+        return blocks[index.x + 1][index.y + 1][index.z + 1];
+    }
 };
 
 class BlockStepPriority final
@@ -369,7 +377,15 @@ struct BlockStepFullOutput final
     {
     }
 };
+}
 
+namespace graphics
+{
+class MemoryRenderBuffer;
+}
+
+namespace block
+{
 class BlockDescriptor
 {
     BlockDescriptor(const BlockDescriptor &) = delete;
@@ -383,146 +399,155 @@ private:
         return *retval;
     }
 
+public:
+    typedef util::EnumArray<bool, BlockFace> BlockedFaces;
+
 protected:
-    explicit BlockDescriptor(std::string name, lighting::LightProperties lightProperties) noexcept;
+    explicit BlockDescriptor(std::string name,
+                             lighting::LightProperties lightProperties,
+                             const BlockedFaces &blockedFaces) noexcept;
 
 public:
     virtual ~BlockDescriptor() = default;
     const lighting::LightProperties lightProperties;
     const BlockKind blockKind;
     const std::string name;
-    virtual BlockStepPartOutput stepFromNXNYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    const BlockedFaces blockedFaces;
+    virtual void render(graphics::MemoryRenderBuffer &renderBuffer,
+                        const BlockStepInput &stepInput,
+                        const BlockStepGlobalState &stepGlobalState) const = 0;
+    virtual BlockStepPartOutput stepFromNXNYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXNYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXNYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXNYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXNYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXCYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXCYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXCYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXCYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXCYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXCYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXPYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXPYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXPYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXPYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromNXPYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromNXPYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXNYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXNYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXNYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXNYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXNYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXNYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXCYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXCYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXCYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXCYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXCYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXCYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXPYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXPYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXPYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXPYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromCXPYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromCXPYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXNYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXNYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXNYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXNYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXNYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXNYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXCYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXCYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXCYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXCYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXCYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXCYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXPYNZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXPYNZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXPYCZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXPYCZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
-    virtual BlockStepPartOutput stepFromPXPYPZ(
-        const BlockStepInput &stepInput, const block::BlockStepGlobalState &stepGlobalState) const
+    virtual BlockStepPartOutput stepFromPXPYPZ(const BlockStepInput &stepInput,
+                                               const BlockStepGlobalState &stepGlobalState) const
     {
         return BlockStepPartOutput();
     }
@@ -530,7 +555,7 @@ public:
 private:
     static BlockStepPartOutput stepFromNXNYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -538,7 +563,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXNYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -546,7 +571,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXNYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -554,7 +579,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXCYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -562,7 +587,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXCYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -570,7 +595,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXCYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -578,7 +603,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXPYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -586,7 +611,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXPYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -594,7 +619,7 @@ private:
     }
     static BlockStepPartOutput stepFromNXPYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -602,7 +627,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXNYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -610,7 +635,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXNYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -618,7 +643,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXNYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -626,7 +651,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXCYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -634,7 +659,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXCYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -642,7 +667,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXCYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -650,7 +675,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXPYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -658,7 +683,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXPYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -666,7 +691,7 @@ private:
     }
     static BlockStepPartOutput stepFromCXPYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -674,7 +699,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXNYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -682,7 +707,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXNYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -690,7 +715,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXNYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -698,7 +723,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXCYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -706,7 +731,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXCYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -714,7 +739,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXCYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -722,7 +747,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXPYNZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -730,7 +755,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXPYCZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -738,7 +763,7 @@ private:
     }
     static BlockStepPartOutput stepFromPXPYPZ(BlockKind blockKind,
                                               const BlockStepInput &stepInput,
-                                              const block::BlockStepGlobalState &stepGlobalState)
+                                              const BlockStepGlobalState &stepGlobalState)
     {
         if(blockKind == BlockKind::empty())
             return BlockStepPartOutput();
@@ -757,7 +782,7 @@ public:
         return descriptorsLookupTable[blockKind.value];
     }
     static BlockStepFullOutput step(const BlockStepInput &stepInput,
-                                    const block::BlockStepGlobalState &stepGlobalState)
+                                    const BlockStepGlobalState &stepGlobalState)
     {
         if(stepInput.blocks[1][1][1].getBlockKind() == BlockKind::empty())
             return BlockStepFullOutput(stepInput.blocks[1][1][1], BlockStepExtraActions());
@@ -828,6 +853,19 @@ public:
                                              stepInput.blocks[1][1][0].getLighting(),
                                              stepInput.blocks[1][1][2].getLighting())),
             std::move(blockStepPartOutput.actions));
+    }
+    static bool needRenderBlockFace(const BlockDescriptor *neighborBlockDescriptor,
+                                    BlockFace blockFace) noexcept
+    {
+        if(!neighborBlockDescriptor)
+            return false;
+        return !neighborBlockDescriptor->blockedFaces[reverse(blockFace)];
+    }
+    static bool needRenderBlockFace(BlockKind neighborBlockKind, BlockFace blockFace) noexcept
+    {
+        if(neighborBlockKind == BlockKind::empty())
+            return false;
+        return !get(neighborBlockKind)->blockedFaces[reverse(blockFace)];
     }
 };
 }

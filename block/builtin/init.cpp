@@ -20,6 +20,7 @@
  */
 #include "init.h"
 #include "air.h"
+#include "bedrock.h"
 
 namespace programmerjake
 {
@@ -32,6 +33,7 @@ namespace builtin
 void init()
 {
     Air::init();
+    Bedrock::init();
 }
 }
 }

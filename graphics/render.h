@@ -25,7 +25,9 @@
 #include <memory>
 #include "../util/enum.h"
 #include "triangle.h"
+#include "transform.h"
 #include "../util/constexpr_assert.h"
+#include <initializer_list>
 
 namespace programmerjake
 {
@@ -52,8 +54,23 @@ public:
     virtual void reserveAdditional(RenderLayer renderLayer, std::size_t howManyTriangles) = 0;
     virtual void appendTriangles(RenderLayer renderLayer,
                                  const Triangle *triangles,
+                                 std::size_t triangleCount,
+                                 const Transform &tform) = 0;
+    virtual void appendTriangles(RenderLayer renderLayer,
+                                 const Triangle *triangles,
                                  std::size_t triangleCount) = 0;
+    void appendTriangles(RenderLayer renderLayer, std::initializer_list<Triangle> triangles)
+    {
+        appendTriangles(renderLayer, triangles.begin(), triangles.size());
+    }
+    void appendTriangles(RenderLayer renderLayer,
+                         std::initializer_list<Triangle> triangles,
+                         const Transform &tform)
+    {
+        appendTriangles(renderLayer, triangles.begin(), triangles.size(), tform);
+    }
     virtual void appendBuffer(const ReadableRenderBuffer &buffer) = 0;
+    virtual void appendBuffer(const ReadableRenderBuffer &buffer, const Transform &tform) = 0;
     virtual void finish() noexcept = 0;
     static std::shared_ptr<RenderBuffer> makeGPUBuffer(
         const util::EnumArray<std::size_t, RenderLayer> &maximumSizes);
@@ -93,17 +110,27 @@ public:
         triangleBuffers[renderLayer].insert(
             triangleBuffers[renderLayer].end(), triangles, triangles + triangleCount);
     }
+    virtual void appendTriangles(RenderLayer renderLayer,
+                                 const Triangle *triangles,
+                                 std::size_t triangleCount,
+                                 const Transform &tform) override
+    {
+        auto &triangleBuffer = triangleBuffers[renderLayer];
+        triangleBuffer.reserve(triangleBuffer.size() + triangleCount);
+        for(std::size_t i = 0; i < triangleCount; i++)
+            triangleBuffer.push_back(transform(tform, triangles[i]));
+    }
     virtual void appendBuffer(const ReadableRenderBuffer &buffer) override
     {
         constexprAssert(&buffer != this);
-        if(auto &memoryBuffer = *dynamic_cast<const MemoryRenderBuffer *>(&buffer))
+        if(auto *memoryBuffer = dynamic_cast<const MemoryRenderBuffer *>(&buffer))
         {
             for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 triangleBuffers[renderLayer].insert(
                     triangleBuffers[renderLayer].end(),
-                    memoryBuffer.triangleBuffers[renderLayer].begin(),
-                    memoryBuffer.triangleBuffers[renderLayer].end());
+                    memoryBuffer->triangleBuffers[renderLayer].begin(),
+                    memoryBuffer->triangleBuffers[renderLayer].end());
             }
         }
         else
@@ -116,6 +143,37 @@ public:
                 buffer.readTriangles(renderLayer,
                                      &triangleBuffer[originalSize],
                                      triangleBuffer.size() - originalSize);
+            }
+        }
+    }
+    virtual void appendBuffer(const ReadableRenderBuffer &buffer, const Transform &tform) override
+    {
+        constexprAssert(&buffer != this);
+        if(auto *memoryBuffer = dynamic_cast<const MemoryRenderBuffer *>(&buffer))
+        {
+            for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                triangleBuffers[renderLayer].reserve(
+                    triangleBuffers[renderLayer].size()
+                    + memoryBuffer->triangleBuffers[renderLayer].size());
+                for(auto &triangle : memoryBuffer->triangleBuffers[renderLayer])
+                {
+                    triangleBuffers[renderLayer].push_back(transform(tform, triangle));
+                }
+            }
+        }
+        else
+        {
+            for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                auto &triangleBuffer = triangleBuffers[renderLayer];
+                auto originalSize = triangleBuffer.size();
+                triangleBuffer.resize(originalSize + buffer.getTriangleCount(renderLayer));
+                buffer.readTriangles(renderLayer,
+                                     &triangleBuffer[originalSize],
+                                     triangleBuffer.size() - originalSize);
+                for(std::size_t i = originalSize; i < triangleBuffer.size(); i++)
+                    triangleBuffer[i] = transform(tform, triangleBuffer[i]);
             }
         }
     }

@@ -27,10 +27,12 @@ namespace voxels
 namespace block
 {
 BlockDescriptor::BlockDescriptor(std::string name,
-                                 lighting::LightProperties lightProperties) noexcept
+                                 lighting::LightProperties lightProperties,
+                                 const BlockedFaces &blockedFaces) noexcept
     : lightProperties(lightProperties),
       blockKind(BlockKind::allocate()),
-      name(std::move(name))
+      name(std::move(name)),
+      blockedFaces(blockedFaces)
 {
     auto &descriptorsLookupTable = getDescriptorsLookupTable();
     if(descriptorsLookupTable.size() <= blockKind.value)

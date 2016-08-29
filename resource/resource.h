@@ -24,6 +24,7 @@
 
 #include <memory>
 #include <string>
+#include "../graphics/texture.h"
 
 namespace programmerjake
 {
@@ -41,6 +42,7 @@ namespace resource
 {
 std::shared_ptr<io::InputStream> readResource(std::string name);
 std::shared_ptr<graphics::Image> readResourceImage(std::string name);
+graphics::TextureId readResourceTexture(std::string name);
 }
 }
 }

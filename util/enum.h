@@ -23,7 +23,7 @@
 #define UTIL_ENUM_H_
 
 #include <type_traits>
-#include <array>
+#include "constexpr_array.h"
 #include "integer_sequence.h"
 
 namespace programmerjake
@@ -86,14 +86,14 @@ public:
 
 private:
     template <underlying_type... values>
-    static constexpr std::array<EnumType, EnumTraitsImplementation<EnumType>::size> makeValues(
+    static constexpr array<EnumType, EnumTraitsImplementation<EnumType>::size> makeValues(
         IntegerSequence<underlying_type, values...>)
     {
-        return std::array<EnumType, EnumTraitsImplementation<EnumType>::size>{static_cast<EnumType>(
+        return array<EnumType, EnumTraitsImplementation<EnumType>::size>{static_cast<EnumType>(
             values + static_cast<underlying_type>(EnumTraitsImplementation<EnumType>::min))...};
     }
-    typedef std::array<EnumType, EnumTraitsImplementation<EnumType>::size> ValuesImplementationType;
-    static constexpr std::array<EnumType, EnumTraitsImplementation<EnumType>::size>
+    typedef array<EnumType, EnumTraitsImplementation<EnumType>::size> ValuesImplementationType;
+    static constexpr array<EnumType, EnumTraitsImplementation<EnumType>::size>
         valuesImplementation = makeValues(
             MakeIntegerSequence<underlying_type, EnumTraitsImplementation<EnumType>::size>());
 
@@ -116,7 +116,7 @@ public:
 };
 
 template <typename EnumType>
-constexpr std::array<EnumType, EnumTraitsImplementation<EnumType>::size>
+constexpr array<EnumType, EnumTraitsImplementation<EnumType>::size>
     EnumTraits<EnumType>::valuesImplementation;
 
 template <typename EnumType>
@@ -254,7 +254,7 @@ constexpr typename EnumTraits<EnumType>::ValuesType::const_iterator
 }
 
 template <typename T, typename EnumType>
-struct EnumArray final
+struct EnumArray
 {
     typedef EnumType index_type;
     typedef T value_type;
