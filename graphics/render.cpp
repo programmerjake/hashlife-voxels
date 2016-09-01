@@ -18,9 +18,8 @@
  * MA 02110-1301, USA.
  *
  */
+#include "render.h"
 #include "driver.h"
-#include "drivers/null_driver.h"
-#include "../util/constexpr_assert.h"
 
 namespace programmerjake
 {
@@ -28,18 +27,10 @@ namespace voxels
 {
 namespace graphics
 {
-Driver &Driver::get(Driver *driver)
+std::shared_ptr<RenderBuffer> RenderBuffer::makeGPUBuffer(
+    const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
 {
-    bool isFirst = false;
-    static Driver *retval = [&]()->Driver *
-    {
-        isFirst = true;
-        constexprAssert(driver);
-        return driver;
-    }();
-    constexprAssert(isFirst || !driver);
-#warning finish
-    return *retval;
+    return Driver::get().makeBuffer(maximumSizes);
 }
 }
 }

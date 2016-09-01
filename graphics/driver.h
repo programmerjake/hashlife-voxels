@@ -24,6 +24,10 @@
 
 #include "image.h"
 #include "texture.h"
+#include "../util/enum.h"
+#include "render.h"
+#include "color.h"
+#include "transform.h"
 #include <memory>
 
 namespace programmerjake
@@ -34,18 +38,40 @@ namespace graphics
 {
 class Driver
 {
+public:
+    struct CommandBuffer
+    {
+        virtual ~CommandBuffer() = default;
+        virtual void appendClearCommand(bool colorFlag,
+                                        bool depthFlag,
+                                        const ColorI &backgroundColor) = 0;
+        virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
+                                         const Transform &viewTransform,
+                                         const Transform &projectionTransform) = 0;
+        virtual void appendPresentCommandAndFinish() = 0;
+    };
+
 private:
-    class NullDriver;
+    static Driver &get(Driver *driver);
 
 public:
     virtual ~Driver() = default;
-    static Driver &get();
-    static void init()
+    static Driver &get()
     {
-        get();
+        return get(nullptr);
+    }
+    static void init(Driver *driver)
+    {
+        get(driver);
     }
     virtual TextureId makeTexture(const std::shared_ptr<const Image> &image) = 0;
     virtual void setNewImageData(TextureId texture, const std::shared_ptr<const Image> &image) = 0;
+    virtual std::shared_ptr<RenderBuffer> makeBuffer(
+        const util::EnumArray<std::size_t, RenderLayer> &maximumSizes) = 0;
+    virtual void resume() = 0;
+    virtual void pause() = 0;
+    virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() = 0;
+    virtual void submitCommandBuffer(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
 };
 }
 }

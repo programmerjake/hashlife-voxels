@@ -30,10 +30,10 @@ namespace voxels
 {
 namespace world
 {
-void initAll()
+void initAll(graphics::Driver *driver)
 {
     graphics::Image::init();
-    graphics::Driver::init();
+    graphics::Driver::init(driver);
     Dimension::init();
     block::builtin::init();
 }

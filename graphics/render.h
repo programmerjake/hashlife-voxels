@@ -28,6 +28,7 @@
 #include "transform.h"
 #include "../util/constexpr_assert.h"
 #include <initializer_list>
+#include <vector>
 
 namespace programmerjake
 {
@@ -189,6 +190,130 @@ public:
         constexprAssert(bufferSize <= triangleBuffer.size());
         for(std::size_t i = 0; i < bufferSize; i++)
             buffer[i] = triangleBuffer[i];
+    }
+    virtual void finish() noexcept override
+    {
+    }
+};
+
+class SizedMemoryRenderBuffer final : public ReadableRenderBuffer
+{
+private:
+    struct TriangleBuffer final
+    {
+        std::unique_ptr<Triangle[]> buffer;
+        std::size_t bufferSize;
+        std::size_t bufferUsed;
+        TriangleBuffer(std::size_t size = 0)
+            : buffer(size > 0 ? new Triangle[size] : nullptr), bufferSize(size), bufferUsed(0)
+        {
+        }
+        std::size_t allocateSpace(std::size_t triangleCount) noexcept
+        {
+            constexprAssert(triangleCount <= bufferSize
+                            && triangleCount + bufferUsed <= bufferSize);
+            auto retval = bufferUsed;
+            bufferUsed += triangleCount;
+            return retval;
+        }
+        void append(const Triangle *triangles, std::size_t triangleCount) noexcept
+        {
+            std::size_t location = allocateSpace(triangleCount);
+            for(std::size_t i = 0; i < triangleCount; i++)
+                buffer[location + i] = triangles[i];
+        }
+        void append(const Triangle &triangle) noexcept
+        {
+            append(&triangle, 1);
+        }
+        std::size_t sizeLeft() const noexcept
+        {
+            return bufferSize - bufferUsed;
+        }
+    };
+    util::EnumArray<TriangleBuffer, RenderLayer> triangleBuffers;
+    bool finished;
+
+public:
+    SizedMemoryRenderBuffer(const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
+        : triangleBuffers(), finished(false)
+    {
+        for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
+        {
+            triangleBuffers[renderLayer] = TriangleBuffer(maximumSizes[renderLayer]);
+        }
+    }
+    bool isFinished() const noexcept
+    {
+        return finished;
+    }
+    virtual std::size_t getMaximumAdditionalSize(RenderLayer renderLayer) const noexcept override
+    {
+        return triangleBuffers[renderLayer].sizeLeft();
+    }
+    virtual void reserveAdditional(RenderLayer renderLayer, std::size_t howManyTriangles) override
+    {
+        constexprAssert(!finished);
+    }
+    virtual void appendTriangles(RenderLayer renderLayer,
+                                 const Triangle *triangles,
+                                 std::size_t triangleCount) override
+    {
+        constexprAssert(!finished);
+        triangleBuffers[renderLayer].append(triangles, triangleCount);
+    }
+    virtual void appendTriangles(RenderLayer renderLayer,
+                                 const Triangle *triangles,
+                                 std::size_t triangleCount,
+                                 const Transform &tform) override
+    {
+        constexprAssert(!finished);
+        for(std::size_t i = 0; i < triangleCount; i++)
+            triangleBuffers[renderLayer].append(transform(tform, triangles[i]));
+    }
+    virtual void appendBuffer(const ReadableRenderBuffer &buffer) override
+    {
+        constexprAssert(&buffer != this);
+        constexprAssert(!finished);
+        for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+        {
+            auto &triangleBuffer = triangleBuffers[renderLayer];
+            std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+            std::size_t location = triangleBuffer.allocateSpace(triangleCount);
+            buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+        }
+    }
+    virtual void appendBuffer(const ReadableRenderBuffer &buffer, const Transform &tform) override
+    {
+        constexprAssert(&buffer != this);
+        constexprAssert(!finished);
+        for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+        {
+            auto &triangleBuffer = triangleBuffers[renderLayer];
+            std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+            std::size_t location = triangleBuffer.allocateSpace(triangleCount);
+            buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+            for(std::size_t i = 0; i < triangleCount; i++)
+                triangleBuffer.buffer[location + i] =
+                    transform(tform, triangleBuffer.buffer[location + i]);
+        }
+    }
+    virtual std::size_t getTriangleCount(RenderLayer renderLayer) const noexcept override
+    {
+        return triangleBuffers[renderLayer].bufferUsed;
+    }
+    virtual void readTriangles(RenderLayer renderLayer,
+                               Triangle *buffer,
+                               std::size_t bufferSize) const noexcept override
+    {
+        auto &triangleBuffer = triangleBuffers[renderLayer];
+        constexprAssert(bufferSize <= triangleBuffer.bufferUsed);
+        for(std::size_t i = 0; i < bufferSize; i++)
+            buffer[i] = triangleBuffer.buffer[i];
+    }
+    virtual void finish() noexcept override
+    {
+        finished = true;
     }
 };
 }

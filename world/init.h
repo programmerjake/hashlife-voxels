@@ -26,9 +26,13 @@ namespace programmerjake
 {
 namespace voxels
 {
+namespace graphics
+{
+class Driver;
+}
 namespace world
 {
-void initAll();
+void initAll(graphics::Driver *driver);
 }
 }
 }

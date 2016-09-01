@@ -25,6 +25,7 @@
 #include "logging/logging.h"
 #include "util/constexpr_assert.h"
 #include "block/builtin/air.h"
+#include "graphics/drivers/null_driver.h"
 #include <sstream>
 #include <iostream>
 
@@ -266,7 +267,7 @@ struct DumpAccessArrayWrapper<util::array<T, N>>
 
 int main()
 {
-    world::initAll();
+    world::initAll(new graphics::drivers::NullDriver);
     MyBlock::init();
     logging::setGlobalLevel(logging::Level::Debug);
     world::World theWorld;
