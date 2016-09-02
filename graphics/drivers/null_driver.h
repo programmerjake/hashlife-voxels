@@ -234,6 +234,10 @@ public:
         constexprAssert(dynamic_cast<const NullCommandBuffer *>(commandBuffer.get()));
         constexprAssert(static_cast<const NullCommandBuffer *>(commandBuffer.get())->finished);
     }
+    virtual void run(void (*runCallback)(void *arg), void *arg) override
+    {
+        runCallback(arg);
+    }
 };
 }
 }

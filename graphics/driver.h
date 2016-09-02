@@ -29,6 +29,8 @@
 #include "color.h"
 #include "transform.h"
 #include <memory>
+#include <type_traits>
+#include <utility>
 
 namespace programmerjake
 {
@@ -68,10 +70,19 @@ public:
     virtual void setNewImageData(TextureId texture, const std::shared_ptr<const Image> &image) = 0;
     virtual std::shared_ptr<RenderBuffer> makeBuffer(
         const util::EnumArray<std::size_t, RenderLayer> &maximumSizes) = 0;
-    virtual void resume() = 0;
-    virtual void pause() = 0;
+    virtual void run(void (*runCallback)(void *arg), void *arg) = 0;
+    template <typename Fn>
+    void run(Fn &&fn)
+    {
+        run(
+            [](void *arg) -> void
+            {
+                std::forward<Fn>(*static_cast<typename std::remove_reference<Fn>::type *>(arg))();
+            },
+            const_cast<void *>(&reinterpret_cast<const volatile char &>(fn)));
+    }
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() = 0;
-    virtual void submitCommandBuffer(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+    virtual void runFrame(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
 };
 }
 }
