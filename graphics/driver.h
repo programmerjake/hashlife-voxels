@@ -31,6 +31,7 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
+#include "../ui/event.h"
 
 namespace programmerjake
 {
@@ -48,6 +49,7 @@ public:
                                         bool depthFlag,
                                         const ColorI &backgroundColor) = 0;
         virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
+                                         const Transform &modelTransform,
                                          const Transform &viewTransform,
                                          const Transform &projectionTransform) = 0;
         virtual void appendPresentCommandAndFinish() = 0;
@@ -82,7 +84,20 @@ public:
             const_cast<void *>(&reinterpret_cast<const volatile char &>(fn)));
     }
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() = 0;
-    virtual void runFrame(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+    virtual void runFrame(std::shared_ptr<CommandBuffer> commandBuffer,
+                          void (*eventCallback)(void *arg, const ui::event::Event &event),
+                          void *arg) = 0;
+    template <typename Fn>
+    void runFrame(std::shared_ptr<CommandBuffer> commandBuffer, Fn &&fn)
+    {
+        runFrame(std::move(commandBuffer),
+                 [](void *arg, const ui::event::Event &event) -> void
+                 {
+                     std::forward<Fn>(
+                         *static_cast<typename std::remove_reference<Fn>::type *>(arg))(event);
+                 },
+                 const_cast<void *>(&reinterpret_cast<const volatile char &>(fn)));
+    }
 };
 }
 }

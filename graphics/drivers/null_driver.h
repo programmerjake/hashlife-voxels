@@ -24,6 +24,8 @@
 
 #include "../driver.h"
 #include "../../util/constexpr_assert.h"
+#include "../../platform/terminate_handler.h"
+#include <atomic>
 
 namespace programmerjake
 {
@@ -36,6 +38,26 @@ namespace drivers
 class NullDriver final : public Driver
 {
 private:
+    static int installTerminationRequestHandler()
+    {
+        platform::setTerminationRequestHandler([]()
+                                               {
+                                                   getTerminationRequestCountVariable().fetch_add(
+                                                       1, std::memory_order_relaxed);
+                                               });
+        return 0;
+    }
+    static std::atomic_size_t &getTerminationRequestCountVariable()
+    {
+        static std::atomic_size_t retval(0);
+        static int unused = installTerminationRequestHandler();
+        static_cast<void>(unused);
+        return retval;
+    }
+    static std::size_t getTerminationRequestCount()
+    {
+        return getTerminationRequestCountVariable().exchange(0, std::memory_order_relaxed);
+    }
     bool running = false;
     struct NullTextureImplementation final : public TextureImplementation
     {
@@ -180,6 +202,7 @@ private:
             constexprAssert(!finished);
         }
         virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
+                                         const Transform &modelTransform,
                                          const Transform &viewTransform,
                                          const Transform &projectionTransform) override
         {
@@ -214,29 +237,36 @@ public:
     {
         return std::make_shared<NullRenderBuffer>(maximumSizes);
     }
-    virtual void resume() override
-    {
-        constexprAssert(!running);
-        running = true;
-    }
-    virtual void pause() override
-    {
-        constexprAssert(running);
-        running = false;
-    }
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() override
     {
         return std::make_shared<NullCommandBuffer>();
     }
-    virtual void submitCommandBuffer(std::shared_ptr<CommandBuffer> commandBuffer) override
+    virtual void runFrame(std::shared_ptr<CommandBuffer> commandBuffer,
+                          void (*eventCallback)(void *arg, const ui::event::Event &event),
+                          void *arg) override
     {
         constexprAssert(running);
         constexprAssert(dynamic_cast<const NullCommandBuffer *>(commandBuffer.get()));
         constexprAssert(static_cast<const NullCommandBuffer *>(commandBuffer.get())->finished);
+        auto terminationRequestCount = getTerminationRequestCount();
+        for(std::size_t i = 0; i < terminationRequestCount; i++)
+        {
+            eventCallback(arg, ui::event::Quit());
+        }
     }
     virtual void run(void (*runCallback)(void *arg), void *arg) override
     {
-        runCallback(arg);
+        running = true;
+        try
+        {
+            runCallback(arg);
+        }
+        catch(...)
+        {
+            running = false;
+            throw;
+        }
+        running = false;
     }
 };
 }
