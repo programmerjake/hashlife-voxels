@@ -22,6 +22,14 @@
 #ifndef GRAPHICS_DRIVERS_SDL2_DRIVER_H_
 #define GRAPHICS_DRIVERS_SDL2_DRIVER_H_
 
+#include "../driver.h"
+#include "../../ui/event.h"
+#include <SDL.h>
+
+#if SDL_MAJOR_VERSION != 2
+#error incorrect SDL version
+#endif
+
 namespace programmerjake
 {
 namespace voxels
@@ -30,6 +38,48 @@ namespace graphics
 {
 namespace drivers
 {
+class SDL2Driver : public Driver
+{
+private:
+    struct RunningState;
+
+private:
+    std::string title;
+    std::shared_ptr<RunningState> runningState;
+
+protected:
+    virtual void renderFrame(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+    virtual SDL_Window *createWindow() = 0; // returns flags
+    SDL_Window *getWindow() const noexcept;
+    void runOnMainThread(void (*fn)(void *arg), void *arg);
+    template <typename Fn>
+    void runOnMainThread(Fn &&fn)
+    {
+        runOnMainThread(
+            [](void *arg)
+            {
+                std::forward<Fn>(*static_cast<typename std::remove_reference<Fn>::type *>(arg))();
+            },
+            const_cast<void *>(static_cast<const volatile void *>(std::addressof(fn))));
+    }
+
+public:
+    virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
+                     void *renderCallbackArg,
+                     bool (*eventCallback)(void *arg, const ui::event::Event &event),
+                     void *eventCallbackArg) override final;
+    const std::string &getTitle() const noexcept
+    {
+        return title;
+    }
+    void setTitle(std::string newTitle);
+    explicit SDL2Driver(std::string title) : title(std::move(title)), runningState()
+    {
+    }
+    SDL2Driver() : SDL2Driver("Voxels")
+    {
+    }
+};
 }
 }
 }

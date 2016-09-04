@@ -31,6 +31,7 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
+#include <string>
 #include "../ui/event.h"
 
 namespace programmerjake
@@ -72,32 +73,29 @@ public:
     virtual void setNewImageData(TextureId texture, const std::shared_ptr<const Image> &image) = 0;
     virtual std::shared_ptr<RenderBuffer> makeBuffer(
         const util::EnumArray<std::size_t, RenderLayer> &maximumSizes) = 0;
-    virtual void run(void (*runCallback)(void *arg), void *arg) = 0;
-    template <typename Fn>
-    void run(Fn &&fn)
+    virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
+                     void *renderCallbackArg,
+                     bool (*eventCallback)(void *arg, const ui::event::Event &event),
+                     void *eventCallbackArg) = 0;
+    template <typename RenderCallback, typename EventCallback>
+    void run(RenderCallback &&renderCallback, EventCallback &&eventCallback)
     {
         run(
-            [](void *arg) -> void
+            [](void *arg) -> std::shared_ptr<CommandBuffer>
             {
-                std::forward<Fn>(*static_cast<typename std::remove_reference<Fn>::type *>(arg))();
+                return std::forward<RenderCallback>(
+                    *static_cast<typename std::remove_reference<RenderCallback>::type *>(arg))();
             },
-            const_cast<void *>(&reinterpret_cast<const volatile char &>(fn)));
+            const_cast<void *>(&reinterpret_cast<const volatile char &>(renderCallback)),
+            [](void *arg, const ui::event::Event &event) -> bool
+            {
+                return std::forward<EventCallback>(
+                    *static_cast<typename std::remove_reference<EventCallback>::type *>(arg,
+                                                                                        event))();
+            },
+            const_cast<void *>(&reinterpret_cast<const volatile char &>(eventCallback)));
     }
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() = 0;
-    virtual void runFrame(std::shared_ptr<CommandBuffer> commandBuffer,
-                          void (*eventCallback)(void *arg, const ui::event::Event &event),
-                          void *arg) = 0;
-    template <typename Fn>
-    void runFrame(std::shared_ptr<CommandBuffer> commandBuffer, Fn &&fn)
-    {
-        runFrame(std::move(commandBuffer),
-                 [](void *arg, const ui::event::Event &event) -> void
-                 {
-                     std::forward<Fn>(
-                         *static_cast<typename std::remove_reference<Fn>::type *>(arg))(event);
-                 },
-                 const_cast<void *>(&reinterpret_cast<const volatile char &>(fn)));
-    }
 };
 }
 }
