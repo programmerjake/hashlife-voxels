@@ -50,13 +50,13 @@ struct VertexWithoutNormal
     {
         return TextureCoordinates(textureCoordinatesU, textureCoordinatesV);
     }
-    ColorU16::ValueType colorRed;
-    ColorU16::ValueType colorGreen;
-    ColorU16::ValueType colorBlue;
-    ColorU16::ValueType colorOpacity;
-    constexpr ColorU16 getColor() const
+    float colorRed;
+    float colorGreen;
+    float colorBlue;
+    float colorOpacity;
+    constexpr ColorF getColor() const
     {
-        return ColorU16(colorRed, colorGreen, colorBlue, colorOpacity);
+        return ColorF(colorRed, colorGreen, colorBlue, colorOpacity);
     }
     constexpr VertexWithoutNormal()
         : positionX(),
@@ -75,10 +75,10 @@ struct VertexWithoutNormal
                                   float positionZ,
                                   TextureCoordinates::ValueType textureCoordinatesU,
                                   TextureCoordinates::ValueType textureCoordinatesV,
-                                  ColorU16::ValueType colorRed,
-                                  ColorU16::ValueType colorGreen,
-                                  ColorU16::ValueType colorBlue,
-                                  ColorU16::ValueType colorOpacity)
+                                  float colorRed,
+                                  float colorGreen,
+                                  float colorBlue,
+                                  float colorOpacity)
         : positionX(positionX),
           positionY(positionY),
           positionZ(positionZ),
@@ -92,7 +92,7 @@ struct VertexWithoutNormal
     }
     constexpr VertexWithoutNormal(util::Vector3F position,
                                   TextureCoordinates textureCoordinates,
-                                  ColorU16 color)
+                                  ColorF color)
         : positionX(position.x),
           positionY(position.y),
           positionZ(position.z),
@@ -130,10 +130,10 @@ struct Vertex : public VertexWithoutNormal
                      float positionZ,
                      TextureCoordinates::ValueType textureCoordinatesU,
                      TextureCoordinates::ValueType textureCoordinatesV,
-                     ColorU16::ValueType colorRed,
-                     ColorU16::ValueType colorGreen,
-                     ColorU16::ValueType colorBlue,
-                     ColorU16::ValueType colorOpacity,
+                     float colorRed,
+                     float colorGreen,
+                     float colorBlue,
+                     float colorOpacity,
                      float normalX,
                      float normalY,
                      float normalZ)
@@ -153,7 +153,7 @@ struct Vertex : public VertexWithoutNormal
     }
     constexpr Vertex(util::Vector3F position,
                      TextureCoordinates textureCoordinates,
-                     ColorU16 color,
+                     ColorF color,
                      util::Vector3F normal)
         : VertexWithoutNormal(position, textureCoordinates, color),
           normalX(normal.x),

@@ -35,7 +35,7 @@ namespace graphics
 {
 struct TextureCoordinates final
 {
-    typedef std::uint16_t ValueType;
+    typedef float ValueType;
     ValueType u;
     ValueType v;
     static constexpr ValueType valueMin()

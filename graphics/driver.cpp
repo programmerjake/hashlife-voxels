@@ -31,14 +31,13 @@ namespace graphics
 Driver &Driver::get(Driver *driver)
 {
     bool isFirst = false;
-    static Driver *retval = [&]()->Driver *
+    static Driver *retval = [&]() -> Driver *
     {
         isFirst = true;
         constexprAssert(driver);
         return driver;
     }();
     constexprAssert(isFirst || !driver);
-#warning finish
     return *retval;
 }
 }

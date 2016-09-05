@@ -29,6 +29,7 @@
 #include "../util/vector.h"
 #include "../world/position.h"
 #include "../util/constexpr_array.h"
+#include "../graphics/color.h"
 #include <functional>
 #include <vector>
 #include <list>
@@ -866,6 +867,42 @@ public:
         if(neighborBlockKind == BlockKind::empty())
             return false;
         return !get(neighborBlockKind)->blockedFaces[reverse(blockFace)];
+    }
+    static lighting::LightProperties getLightProperties(BlockKind blockKind) noexcept
+    {
+        if(!blockKind)
+            return lighting::LightProperties::transparent();
+        return get(blockKind)->lightProperties;
+    }
+    static lighting::BlockLighting makeBlockLighting(const BlockStepInput &stepInput,
+                                                     const BlockStepGlobalState &stepGlobalState,
+                                                     util::Vector3I32 offset) noexcept
+    {
+        util::
+            array<util::array<util::array<std::pair<lighting::LightProperties, lighting::Lighting>,
+                                          3>,
+                              3>,
+                  3> blocks;
+        for(std::size_t x = 0; x < blocks.size(); x++)
+        {
+            for(std::size_t y = 0; y < blocks[0].size(); y++)
+            {
+                for(std::size_t z = 0; z < blocks[0][0].size(); z++)
+                {
+                    std::size_t blockX = x + offset.x;
+                    std::size_t blockY = y + offset.y;
+                    std::size_t blockZ = z + offset.z;
+                    Block inputBlock = blockX < stepInput.blocks.size()
+                                               && blockY < stepInput.blocks[0].size()
+                                               && blockZ < stepInput.blocks[0][0].size() ?
+                                           stepInput.blocks[x][y][z] :
+                                           Block();
+                    blocks[x][y][z] = {getLightProperties(inputBlock.getBlockKind()),
+                                       inputBlock.getLighting()};
+                }
+            }
+        }
+        return lighting::BlockLighting(blocks, stepGlobalState.lightingGlobalProperties);
     }
 };
 }

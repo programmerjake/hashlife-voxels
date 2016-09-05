@@ -89,6 +89,10 @@ struct Transform final
     {
         return translate(util::Vector3F(x, y, z));
     }
+    static constexpr Transform translate(float v) noexcept
+    {
+        return translate(util::Vector3F(v));
+    }
     static Transform rotate(util::Vector3F axis, double angle) noexcept
     {
         auto matrix = util::Matrix4x4F::rotate(axis, angle);

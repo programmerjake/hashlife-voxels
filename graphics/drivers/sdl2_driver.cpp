@@ -60,6 +60,8 @@ struct SDL2Driver::RunningState final
     void *const renderCallbackArg;
     void (*const eventCallback)(void *arg, const ui::event::Event &event);
     void *const eventCallbackArg;
+    std::atomic_int width{1};
+    std::atomic_int height{1};
     explicit RunningState(SDL2Driver &driver,
                           std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
                           void *renderCallbackArg,
@@ -1363,6 +1365,17 @@ struct SDL2Driver::RunningState final
         ss << "unrecognized event: " << event.type;
         logging::log(logging::Level::Warning, "SDL2Driver", ss.str());
     }
+    void updateWindowSize() noexcept
+    {
+        int w, h;
+        SDL_GL_GetDrawableSize(window, &w, &h);
+        if(w <= 0)
+            w = 1;
+        if(h <= 0)
+            h = 1;
+        width.store(w, std::memory_order_relaxed);
+        height.store(h, std::memory_order_release);
+    }
     void gameLoop() noexcept
     {
         std::unique_lock<std::mutex> lockIt(mutex);
@@ -1393,6 +1406,7 @@ struct SDL2Driver::RunningState final
                                                    gotEvent = SDL_PollEvent(&event);
                                                else
                                                    gotEvent = SDL_WaitEventTimeout(&event, 250);
+                                               updateWindowSize();
                                            });
                     if(!gotEvent)
                         break;
@@ -1445,16 +1459,16 @@ struct SDL2Driver::RunningState final
         bool createdGraphicsContext = false;
         try
         {
+            std::unique_lock<std::mutex> lockIt(mutex);
             SDL_AddEventWatch(eventFilterFn, static_cast<void *>(this));
+            std::uint32_t flags = SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
+#if 0
+            flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+#endif
             window = driver.createWindow(
-                SDL_WINDOWPOS_UNDEFINED,
-                SDL_WINDOWPOS_UNDEFINED,
-                1024,
-                768,
-                SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOWEVENT_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+                SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1024, 768, flags);
             driver.createGraphicsContext();
             createdGraphicsContext = true;
-            std::unique_lock<std::mutex> lockIt(mutex);
             cond.notify_all();
             while(true)
             {
@@ -1496,6 +1510,10 @@ struct SDL2Driver::RunningState final
         }
         catch(...)
         {
+            std::unique_lock<std::mutex> lockIt(mutex);
+            done = true;
+            cond.notify_all();
+            lockIt.unlock();
             gameLoopThread.join();
             if(createdGraphicsContext)
                 driver.destroyGraphicsContext();
@@ -1504,6 +1522,10 @@ struct SDL2Driver::RunningState final
             SDL_DelEventWatch(eventFilterFn, static_cast<void *>(this));
             throw;
         }
+        std::unique_lock<std::mutex> lockIt(mutex);
+        done = true;
+        cond.notify_all();
+        lockIt.unlock();
         gameLoopThread.join();
         if(createdGraphicsContext)
             driver.destroyGraphicsContext();
@@ -1583,6 +1605,15 @@ void SDL2Driver::initSDL() noexcept
 {
     static int unused = RunningState::initSDL();
     static_cast<void>(unused);
+}
+
+std::pair<std::size_t, std::size_t> SDL2Driver::getOutputSize() const noexcept
+{
+    if(!runningState)
+        return {1, 1};
+    int height = runningState->height.load(std::memory_order_acquire);
+    int width = runningState->width.load(std::memory_order_relaxed);
+    return {width, height};
 }
 }
 }

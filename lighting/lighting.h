@@ -218,6 +218,9 @@ struct LightProperties final
         : emissiveValue(emissiveValue), reduceValue(reduceValue)
     {
     }
+    constexpr LightProperties() : emissiveValue(), reduceValue(0, 1, 1)
+    {
+    }
     static constexpr LightProperties transparent(Lighting emissiveValue = Lighting(0, 0, 0))
     {
         return LightProperties(emissiveValue, Lighting(0, 1, 1));
@@ -300,7 +303,7 @@ struct BlockLighting final
 
 private:
     float evalVertex(const util::array<util::array<util::array<float, 3>, 3>, 3> &blockValues,
-                     util::Vector3I32 offset);
+                     util::Vector3I32 offset) noexcept;
 
 public:
     constexpr BlockLighting() : lightValues{{{{{{0, 0}}, {{0, 0}}}}, {{{{0, 0}}, {{0, 0}}}}}}
@@ -308,7 +311,7 @@ public:
     }
     BlockLighting(
         util::array<util::array<util::array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
-        const Lighting::GlobalProperties &globalProperties);
+        const Lighting::GlobalProperties &globalProperties) noexcept;
 
 private:
     static constexpr util::Vector3F getLightVector()
@@ -319,9 +322,14 @@ private:
     {
         return 0.5f + (v < 0 ? v * 0.25f : v * 0.5f);
     }
+    static constexpr float getNormalFactorHelper2(float v)
+    {
+        return v < 0 ? 0 : v < 1 ? v : 1;
+    }
     static constexpr float getNormalFactor(util::Vector3F normal)
     {
-        return 0.4f + 0.6f * getNormalFactorHelper(dot(normal, getLightVector()));
+        return getNormalFactorHelper2(
+            0.4f + 0.6f * getNormalFactorHelper(dot(normal, getLightVector())));
     }
 
 public:

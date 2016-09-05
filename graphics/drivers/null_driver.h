@@ -157,6 +157,8 @@ private:
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
                 std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+                if(!triangleCount)
+                    continue;
                 std::size_t location = triangleBuffer.allocateSpace(triangleCount);
                 buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
                 for(std::size_t i = 0; i < triangleCount; i++)
@@ -175,6 +177,8 @@ private:
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
                 std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+                if(!triangleCount)
+                    continue;
                 std::size_t location = triangleBuffer.allocateSpace(triangleCount);
                 buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
                 for(std::size_t i = 0; i < triangleCount; i++)
@@ -271,6 +275,10 @@ public:
             throw;
         }
         running = false;
+    }
+    virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept override
+    {
+        return {256, 256};
     }
 };
 }

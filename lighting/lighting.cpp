@@ -28,7 +28,7 @@ namespace lighting
 {
 float BlockLighting::evalVertex(
     const util::array<util::array<util::array<float, 3>, 3>, 3> &blockValues,
-    util::Vector3I32 offset)
+    util::Vector3I32 offset) noexcept
 {
     float retval = 0;
     for(int dx = 0; dx < 2; dx++)
@@ -49,8 +49,7 @@ float BlockLighting::evalVertex(
 
 BlockLighting::BlockLighting(
     util::array<util::array<util::array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
-    const Lighting::GlobalProperties &globalProperties)
-    : lightValues()
+    const Lighting::GlobalProperties &globalProperties) noexcept : lightValues()
 {
     util::array<util::array<util::array<bool, 3>, 3>, 3> isOpaque, setOpaque;
     for(int x = 0; x < 3; x++)

@@ -21,6 +21,7 @@
 #include "bedrock.h"
 #include "../../graphics/render.h"
 #include "../../graphics/shape/cube.h"
+#include "../../lighting/lighting.h"
 #include "../../resource/resource.h"
 
 namespace programmerjake
@@ -43,12 +44,16 @@ void Bedrock::render(graphics::MemoryRenderBuffer &renderBuffer,
                      const BlockStepInput &stepInput,
                      const block::BlockStepGlobalState &stepGlobalState) const
 {
+    graphics::MemoryRenderBuffer localRenderBuffer;
     for(BlockFace blockFace : util::EnumTraits<BlockFace>::values)
     {
         if(needRenderBlockFace(stepInput[getDirection(blockFace)].getBlockKind(), blockFace))
         {
+            auto offset = getDirection(blockFace);
+            auto offsetF = static_cast<util::Vector3F>(offset);
+            auto blockLighting = makeBlockLighting(stepInput, stepGlobalState, offset);
             graphics::shape::renderCubeFace(
-                renderBuffer,
+                localRenderBuffer,
                 graphics::RenderLayer::Opaque,
                 blockFace,
                 util::EnumArray<graphics::Texture, block::BlockFace>{bedrockTexture,
@@ -57,6 +62,14 @@ void Bedrock::render(graphics::MemoryRenderBuffer &renderBuffer,
                                                                      bedrockTexture,
                                                                      bedrockTexture,
                                                                      bedrockTexture});
+            localRenderBuffer.applyLight(
+                [&](util::Vector3F position, graphics::ColorF color, util::Vector3F normal)
+                    -> graphics::ColorF
+                {
+                    return blockLighting.lightVertex(position - offsetF, color, normal);
+                });
+            renderBuffer.appendBuffer(localRenderBuffer);
+            localRenderBuffer.clear();
         }
     }
 }

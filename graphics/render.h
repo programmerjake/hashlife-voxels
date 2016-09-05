@@ -27,6 +27,7 @@
 #include "triangle.h"
 #include "transform.h"
 #include "../util/constexpr_assert.h"
+#include "../lighting/lighting.h"
 #include <initializer_list>
 #include <vector>
 
@@ -81,6 +82,15 @@ class ReadableRenderBuffer : public RenderBuffer
 {
 public:
     virtual std::size_t getTriangleCount(RenderLayer renderLayer) const noexcept = 0;
+    util::EnumArray<std::size_t, RenderLayer> getTriangleCounts() const noexcept
+    {
+        util::EnumArray<std::size_t, RenderLayer> retval{};
+        for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+        {
+            retval[renderLayer] = getTriangleCount(renderLayer);
+        }
+        return retval;
+    }
     virtual void readTriangles(RenderLayer renderLayer,
                                Triangle *buffer,
                                std::size_t bufferSize) const noexcept = 0;
@@ -205,6 +215,32 @@ public:
     }
     virtual void finish() noexcept override
     {
+    }
+    void clear()
+    {
+        for(auto &triangleBuffer : triangleBuffers)
+        {
+            triangleBuffer.clear();
+        }
+    }
+    template <typename Fn>
+    void applyLight(Fn &&fn) noexcept
+    {
+        for(auto &triangleBuffer : triangleBuffers)
+        {
+            for(auto &triangle : triangleBuffer)
+            {
+                for(auto &vertex : triangle.vertices)
+                {
+                    ColorF color = std::forward<Fn>(fn)(
+                        vertex.getPosition(), vertex.getColor(), vertex.getNormal());
+                    vertex = Vertex(vertex.getPosition(),
+                                    vertex.getTextureCoordinates(),
+                                    color,
+                                    vertex.getNormal());
+                }
+            }
+        }
     }
 };
 

@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <utility>
 #include <string>
+#include <tuple>
 #include "../ui/event.h"
 
 namespace programmerjake
@@ -86,16 +87,17 @@ public:
                 return std::forward<RenderCallback>(
                     *static_cast<typename std::remove_reference<RenderCallback>::type *>(arg))();
             },
-            const_cast<void *>(&reinterpret_cast<const volatile char &>(renderCallback)),
-            [](void *arg, const ui::event::Event &event)
+            const_cast<char *>(&reinterpret_cast<const volatile char &>(renderCallback)),
+            [](void *arg, const ui::event::Event &event) -> void
             {
                 std::forward<EventCallback>(
-                    *static_cast<typename std::remove_reference<EventCallback>::type *>(arg,
-                                                                                        event))();
+                    *static_cast<typename std::remove_reference<EventCallback>::type *>(arg))(
+                    event);
             },
-            const_cast<void *>(&reinterpret_cast<const volatile char &>(eventCallback)));
+            const_cast<char *>(&reinterpret_cast<const volatile char &>(eventCallback)));
     }
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() = 0;
+    virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept = 0;
 };
 }
 }

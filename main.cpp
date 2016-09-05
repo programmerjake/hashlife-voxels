@@ -26,8 +26,11 @@
 #include "util/constexpr_assert.h"
 #include "block/builtin/air.h"
 #include "graphics/drivers/null_driver.h"
+#include "graphics/drivers/opengl_1_driver.h"
+#include "block/builtin/bedrock.h"
 #include <sstream>
 #include <iostream>
+#include <chrono>
 
 namespace programmerjake
 {
@@ -35,299 +38,80 @@ namespace voxels
 {
 namespace
 {
-struct MyBlock final : public block::BlockDescriptor
-{
-    enum class State
-    {
-        Started,
-        Done,
-        DEFINE_ENUM_MAX(Done)
-    };
-
-private:
-    static const char *getStateName(State state) noexcept
-    {
-        switch(state)
-        {
-        case State::Started:
-            return "Started";
-        case State::Done:
-            return "Done";
-        }
-        constexprAssert(false);
-        return "<unknown>";
-    }
-    static std::string getName(State state, std::uint32_t generation)
-    {
-        std::ostringstream ss;
-        ss << "testing.myBlock(";
-        ss << getStateName(state);
-        ss << ",";
-        ss << generation;
-        ss << ")";
-        return ss.str();
-    }
-    explicit MyBlock(State state, std::uint32_t generation)
-        : BlockDescriptor(getName(state, generation),
-                          lighting::LightProperties::opaque(),
-                          BlockedFaces{{false, false, false, false, false, false}}),
-          state(state),
-          generation(generation)
-    {
-    }
-    static util::EnumArray<util::array<const MyBlock *,
-                                       block::BlockStepGlobalState::stepSizeInGenerations>,
-                           State>
-        make()
-    {
-        util::EnumArray<util::array<const MyBlock *,
-                                    block::BlockStepGlobalState::stepSizeInGenerations>,
-                        State> retval;
-        for(auto state : util::EnumTraits<State>::values)
-        {
-            for(std::uint32_t generation = 0;
-                generation < block::BlockStepGlobalState::stepSizeInGenerations;
-                generation++)
-            {
-                retval[state][generation] = new MyBlock(state, generation);
-            }
-        }
-        return retval;
-    }
-
-public:
-    const State state;
-    const std::uint32_t generation;
-    static const util::EnumArray<util::array<const MyBlock *,
-                                             block::BlockStepGlobalState::stepSizeInGenerations>,
-                                 State> &
-        get()
-    {
-        static const util::
-            EnumArray<util::array<const MyBlock *,
-                                  block::BlockStepGlobalState::stepSizeInGenerations>,
-                      State> retval = make();
-        return retval;
-    }
-    static const MyBlock *get(State state, std::uint32_t generation)
-    {
-        return get()[state][generation];
-    }
-    static void init()
-    {
-        get();
-    }
-    virtual void render(graphics::MemoryRenderBuffer &renderBuffer,
-                        const block::BlockStepInput &stepInput,
-                        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-    }
-    virtual block::BlockStepPartOutput stepFromCXCYCZ(
-        const block::BlockStepInput &stepInput,
-        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-#if 1
-        switch(state)
-        {
-        case State::Done:
-            if(generation == 0)
-                return {block::builtin::Air::get()->blockKind};
-            return {get(State::Done,
-                        (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)
-                        ->blockKind};
-        case State::Started:
-        {
-            return block::BlockStepPartOutput(
-                get(State::Done,
-                    (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)
-                    ->blockKind,
-                block::BlockStepExtraAction([](world::World &world, world::Position3I32 position)
-                                            {
-                                                std::ostringstream ss;
-                                                ss << position.x << " " << position.y << " "
-                                                   << position.z << " " << position.d.getName();
-                                                logging::log(
-                                                    logging::Level::Info, "MyBlock", ss.str());
-                                            }));
-        }
-        }
-        constexprAssert(false);
-#endif
-        return {};
-    }
-    virtual block::BlockStepPartOutput stepFromCXNYCZ(
-        const block::BlockStepInput &stepInput,
-        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-        if(dynamic_cast<const MyBlock *>(
-               BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
-            return {};
-        return {
-            get(State::Started,
-                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
-    }
-#if 1
-    virtual block::BlockStepPartOutput stepFromNXCYCZ(
-        const block::BlockStepInput &stepInput,
-        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-        if(dynamic_cast<const MyBlock *>(
-               BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
-            return {};
-        return {
-            get(State::Started,
-                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
-    }
-    virtual block::BlockStepPartOutput stepFromCXCYNZ(
-        const block::BlockStepInput &stepInput,
-        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-        if(dynamic_cast<const MyBlock *>(
-               BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
-            return {};
-        return {
-            get(State::Started,
-                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
-    }
-    virtual block::BlockStepPartOutput stepFromPXCYCZ(
-        const block::BlockStepInput &stepInput,
-        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-        if(dynamic_cast<const MyBlock *>(
-               BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
-            return {};
-        return {
-            get(State::Started,
-                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
-    }
-    virtual block::BlockStepPartOutput stepFromCXPYCZ(
-        const block::BlockStepInput &stepInput,
-        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-        if(dynamic_cast<const MyBlock *>(
-               BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
-            return {};
-        return {
-            get(State::Started,
-                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
-    }
-    virtual block::BlockStepPartOutput stepFromCXCYPZ(
-        const block::BlockStepInput &stepInput,
-        const block::BlockStepGlobalState &stepGlobalState) const override
-    {
-        if(dynamic_cast<const MyBlock *>(
-               BlockDescriptor::get(stepInput.blocks[1][1][1].getBlockKind())))
-            return {};
-        return {
-            get(State::Started,
-                (generation + 1) % block::BlockStepGlobalState::stepSizeInGenerations)->blockKind};
-    }
-#endif
-};
-template <typename>
-struct DumpAccessArrayWrapper;
-template <typename T>
-struct IsArray
-{
-    static constexpr bool value = false;
-    static T &addWrapper(T &value) noexcept
-    {
-        std::cout << " -> " << block::BlockDescriptor::get(value.getBlockKind())->name << std::endl;
-        return value;
-    }
-};
-template <typename T, std::size_t N>
-struct IsArray<util::array<T, N>>
-{
-    static constexpr bool value = true;
-    static DumpAccessArrayWrapper<util::array<T, N>> addWrapper(util::array<T, N> &value) noexcept
-    {
-        return DumpAccessArrayWrapper<util::array<T, N>>(value);
-    }
-};
-
-template <typename T, std::size_t N>
-struct DumpAccessArrayWrapper<util::array<T, N>>
-{
-    util::array<T, N> &value;
-    DumpAccessArrayWrapper(util::array<T, N> &value) : value(value)
-    {
-    }
-    std::size_t size() const noexcept
-    {
-        std::cout << ".size()" << std::endl;
-        return N;
-    }
-    decltype(IsArray<T>::addWrapper(std::declval<T &>())) operator[](std::size_t index) noexcept
-    {
-        std::cout << "[" << index << "]";
-        return IsArray<T>::addWrapper(value[index]);
-    }
-};
-
 int main()
 {
-    world::initAll(new graphics::drivers::NullDriver);
-    MyBlock::init();
-    logging::setGlobalLevel(logging::Level::Debug);
-    world::World theWorld;
-    constexpr std::size_t blocksSize = 8;
-    typedef util::array<util::array<util::array<block::Block, blocksSize>, blocksSize>, blocksSize>
-        Blocks;
-    Blocks blocks;
-    for(auto &i : blocks)
-        for(auto &j : i)
-            for(auto &block : j)
-                block = block::Block(block::builtin::Air::get()->blockKind);
-    theWorld.hashlifeWorld->setBlocks(blocks,
-                                      -util::Vector3I32(blocksSize / 2),
-                                      util::Vector3I32(0),
-                                      util::Vector3I32(blocksSize));
-    theWorld.hashlifeWorld->setBlock(
-        block::Block(MyBlock::get(MyBlock::State::Started, 0)->blockKind), util::Vector3I32(0));
-    auto snapshot = theWorld.hashlifeWorld->makeSnapshot();
-    for(std::size_t step = 0; step < 2000; step++)
+    struct QuitException
     {
-        snapshot = theWorld.hashlifeWorld->makeSnapshot();
-        auto actions = theWorld.hashlifeWorld->stepAndCollectGarbage(
+    };
+    world::initAll(new graphics::drivers::OpenGL1Driver);
+    logging::setGlobalLevel(logging::Level::Debug);
+    try
+    {
+        graphics::MemoryRenderBuffer memoryRenderBuffer;
+        block::BlockStepInput blockStepInput;
+        for(auto &i : blockStepInput.blocks)
+        {
+            for(auto &j : i)
+            {
+                for(auto &b : j)
+                {
+                    b = block::Block(block::builtin::Air::get()->blockKind,
+                                     lighting::Lighting::makeSkyLighting());
+                }
+            }
+        }
+        blockStepInput[util::Vector3I32(0)] =
+            block::Block(block::builtin::Bedrock::get()->blockKind, lighting::Lighting());
+        blockStepInput[util::Vector3I32(0, -1, 0)] =
+            block::Block(block::builtin::Air::get()->blockKind,
+                         lighting::Lighting(0, lighting::Lighting::maxLight - 1, 0));
+        block::builtin::Bedrock::get()->render(
+            memoryRenderBuffer,
+            blockStepInput,
             block::BlockStepGlobalState(lighting::Lighting::GlobalProperties(
                 lighting::Lighting::maxLight, world::Dimension::overworld())));
-        actions.run(theWorld, world::Dimension::overworld());
-#if 1
-        std::cout << step << std::endl;
-        constexpr std::int32_t searchDistance = blocksSize / 2;
-        for(util::Vector3I32 p(-searchDistance); p.x < searchDistance || p.x == 0; p.x++)
-        {
-            constexpr auto columnWidth = 5;
-            std::cout.width(columnWidth);
-            std::cout << p.x;
-            std::cout.width(columnWidth);
-            std::cout << "";
-            for(std::int32_t i = -searchDistance; i < searchDistance || i == 0; i++)
+        auto gpuRenderBuffer =
+            graphics::RenderBuffer::makeGPUBuffer(memoryRenderBuffer.getTriangleCounts());
+        gpuRenderBuffer->appendBuffer(memoryRenderBuffer, graphics::Transform::translate(-0.5f));
+        gpuRenderBuffer->finish();
+        graphics::Driver::get().run(
+            [&]() -> std::shared_ptr<graphics::Driver::CommandBuffer>
             {
-                std::cout.width(columnWidth);
-                std::cout << i;
-            }
-            std::cout << std::endl;
-            std::cout << std::endl;
-            for(p.y = -searchDistance; p.y < searchDistance || p.y == 0; p.y++)
+                auto t = std::chrono::duration_cast<std::chrono::duration<double>>(
+                             std::chrono::steady_clock::now().time_since_epoch()).count();
+                auto outputSize = graphics::Driver::get().getOutputSize();
+                float scaleX = std::get<0>(outputSize);
+                float scaleY = std::get<1>(outputSize);
+                scaleX /= std::get<1>(outputSize);
+                scaleY /= std::get<0>(outputSize);
+                if(scaleX < 1)
+                    scaleX = 1;
+                if(scaleY < 1)
+                    scaleY = 1;
+                auto commandBuffer = graphics::Driver::get().makeCommandBuffer();
+                commandBuffer->appendClearCommand(true, true, graphics::rgbF(0, 0, 0));
+                commandBuffer->appendRenderCommand(
+                    gpuRenderBuffer,
+                    graphics::Transform::rotateY(t).concat(graphics::Transform::rotateX(t / 4)),
+                    graphics::Transform::translate(0, 0, -2),
+                    graphics::Transform::frustum(
+                        -0.1 * scaleX, 0.1 * scaleX, -0.1 * scaleY, 0.1 * scaleY, 0.1, 10));
+                commandBuffer->appendPresentCommandAndFinish();
+                return commandBuffer;
+            },
+            [](const ui::event::Event &event)
             {
-                std::cout.width(columnWidth);
-                std::cout << p.y;
-                std::cout.width(columnWidth);
-                std::cout << "";
-                for(p.z = -searchDistance; p.z < searchDistance || p.z == 0; p.z++)
+                if(dynamic_cast<const ui::event::Quit *>(&event))
+                    throw QuitException();
+                if(auto keyDown = dynamic_cast<const ui::event::KeyDown *>(&event))
                 {
-                    auto blockKind = snapshot->get(p).getBlockKind();
-                    std::cout.width(columnWidth);
-                    std::cout << blockKind.value;
+                    if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Escape)
+                        throw QuitException();
                 }
-                std::cout << std::endl;
-            }
-            std::cout << std::endl;
-            std::cout << std::endl;
-        }
-#endif
+            });
+    }
+    catch(QuitException &)
+    {
     }
     return 0;
 }

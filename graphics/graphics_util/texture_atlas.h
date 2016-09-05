@@ -46,6 +46,9 @@ struct TextureSize final
                                                                             height(height)
     {
     }
+    constexpr TextureSize() noexcept : width(), height()
+    {
+    }
     explicit TextureSize(const Image &image) noexcept : width(image.width), height(image.height)
     {
     }
@@ -193,7 +196,7 @@ private:
             TextureSize size = texture->*sizeMember;
             size.width = size.width == 0 ? 1 : powerOf2Ceiling(size.width);
             size.height = size.height == 0 ? 1 : powerOf2Ceiling(size.height);
-            textureGroups.push_back(TextureGroup(size, {&texture}));
+            textureGroups.push_back(TextureGroup(size, {texture}));
             std::push_heap(textureGroups.begin(), textureGroups.end(), textureGroupCompareFunction);
         }
         if(textureGroups.empty())
