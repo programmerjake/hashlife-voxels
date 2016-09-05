@@ -508,7 +508,7 @@ enum class PhysicalKeyCode
     ScrollLock,
     Select,
     Semicolon,
-    Seperator,
+    Separator,
     Sleep,
     Space,
     Stop,
@@ -742,7 +742,7 @@ enum class VirtualKeyCode
     ScrollLock,
     Select,
     Semicolon,
-    Seperator,
+    Separator,
     Sleep,
     Space,
     Stop,
@@ -1004,6 +1004,7 @@ struct MouseMove final : public MousePositioned
 {
     std::int32_t dx;
     std::int32_t dy;
+    util::EnumArray<bool, Button> buttonStates;
     virtual const char *getEventName() const noexcept override
     {
         return "MouseMove";
@@ -1012,8 +1013,13 @@ struct MouseMove final : public MousePositioned
     {
         handler.onMouseMove(*this);
     }
-    MouseMove(DeviceId deviceId, std::int32_t x, std::int32_t y, std::int32_t dx, std::int32_t dy)
-        : MousePositioned(deviceId, x, y), dx(dx), dy(dy)
+    MouseMove(DeviceId deviceId,
+              std::int32_t x,
+              std::int32_t y,
+              std::int32_t dx,
+              std::int32_t dy,
+              const util::EnumArray<bool, Button> &buttonStates)
+        : MousePositioned(deviceId, x, y), dx(dx), dy(dy), buttonStates(buttonStates)
     {
     }
 };

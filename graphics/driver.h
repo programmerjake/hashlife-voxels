@@ -75,7 +75,7 @@ public:
         const util::EnumArray<std::size_t, RenderLayer> &maximumSizes) = 0;
     virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
                      void *renderCallbackArg,
-                     bool (*eventCallback)(void *arg, const ui::event::Event &event),
+                     void (*eventCallback)(void *arg, const ui::event::Event &event),
                      void *eventCallbackArg) = 0;
     template <typename RenderCallback, typename EventCallback>
     void run(RenderCallback &&renderCallback, EventCallback &&eventCallback)
@@ -87,9 +87,9 @@ public:
                     *static_cast<typename std::remove_reference<RenderCallback>::type *>(arg))();
             },
             const_cast<void *>(&reinterpret_cast<const volatile char &>(renderCallback)),
-            [](void *arg, const ui::event::Event &event) -> bool
+            [](void *arg, const ui::event::Event &event)
             {
-                return std::forward<EventCallback>(
+                std::forward<EventCallback>(
                     *static_cast<typename std::remove_reference<EventCallback>::type *>(arg,
                                                                                         event))();
             },

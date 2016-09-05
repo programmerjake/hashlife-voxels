@@ -25,6 +25,7 @@
 #include <system_error>
 #include <limits>
 #include <thread>
+#include "../graphics/drivers/sdl2_driver.h"
 
 #if SDL_MAJOR_VERSION != 2
 #error incorrect SDL version
@@ -47,6 +48,7 @@ std::string Thread::makeThreadName()
 Thread Thread::makeThread(std::unique_ptr<ThreadFunctionBase> fn, const std::string &name)
 {
     Thread retval;
+    graphics::drivers::SDL2Driver::initSDL();
     retval.value = static_cast<void *>(SDL_CreateThread(
         [](void *arg) noexcept->int
         {
@@ -56,7 +58,8 @@ Thread Thread::makeThread(std::unique_ptr<ThreadFunctionBase> fn, const std::str
         name.c_str(),
         fn.get()));
     if(!retval.value)
-        throw std::system_error(std::errc::resource_unavailable_try_again, SDL_GetError());
+        throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again),
+                                SDL_GetError());
     fn.release(); // freed in new thread
     return retval;
 }
@@ -104,6 +107,7 @@ Thread::Id Thread::getId() const noexcept
 
 Thread::Id thisThread::getId() noexcept
 {
+    graphics::drivers::SDL2Driver::initSDL();
     Thread::Id retval;
     retval.empty = false;
     retval.threadId = static_cast<std::uintptr_t>(SDL_ThreadID());

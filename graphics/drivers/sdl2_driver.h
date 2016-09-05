@@ -45,11 +45,14 @@ private:
 
 private:
     std::string title;
-    std::shared_ptr<RunningState> runningState;
+    RunningState *runningState;
 
 protected:
     virtual void renderFrame(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
-    virtual SDL_Window *createWindow() = 0; // returns flags
+    virtual SDL_Window *createWindow(int x, int y, int w, int h, std::uint32_t flags) = 0;
+    virtual void createGraphicsContext() = 0;
+    virtual void destroyGraphicsContext() noexcept = 0;
+    virtual void setGraphicsContextRecreationNeeded() noexcept = 0;
     SDL_Window *getWindow() const noexcept;
     void runOnMainThread(void (*fn)(void *arg), void *arg);
     template <typename Fn>
@@ -66,7 +69,7 @@ protected:
 public:
     virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
                      void *renderCallbackArg,
-                     bool (*eventCallback)(void *arg, const ui::event::Event &event),
+                     void (*eventCallback)(void *arg, const ui::event::Event &event),
                      void *eventCallbackArg) override final;
     const std::string &getTitle() const noexcept
     {
@@ -75,10 +78,12 @@ public:
     void setTitle(std::string newTitle);
     explicit SDL2Driver(std::string title) : title(std::move(title)), runningState()
     {
+        initSDL();
     }
     SDL2Driver() : SDL2Driver("Voxels")
     {
     }
+    static void initSDL() noexcept;
 };
 }
 }

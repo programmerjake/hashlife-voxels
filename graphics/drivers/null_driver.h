@@ -241,25 +241,29 @@ public:
     {
         return std::make_shared<NullCommandBuffer>();
     }
-    virtual void runFrame(std::shared_ptr<CommandBuffer> commandBuffer,
-                          void (*eventCallback)(void *arg, const ui::event::Event &event),
-                          void *arg) override
-    {
-        constexprAssert(running);
-        constexprAssert(dynamic_cast<const NullCommandBuffer *>(commandBuffer.get()));
-        constexprAssert(static_cast<const NullCommandBuffer *>(commandBuffer.get())->finished);
-        auto terminationRequestCount = getTerminationRequestCount();
-        for(std::size_t i = 0; i < terminationRequestCount; i++)
-        {
-            eventCallback(arg, ui::event::Quit());
-        }
-    }
-    virtual void run(void (*runCallback)(void *arg), void *arg) override
+    virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
+                     void *renderCallbackArg,
+                     void (*eventCallback)(void *arg, const ui::event::Event &event),
+                     void *eventCallbackArg) override
     {
         running = true;
         try
         {
-            runCallback(arg);
+            while(true)
+            {
+                auto commandBuffer = renderCallback(renderCallbackArg);
+                if(commandBuffer)
+                {
+                    constexprAssert(dynamic_cast<const NullCommandBuffer *>(commandBuffer.get()));
+                    constexprAssert(
+                        static_cast<const NullCommandBuffer *>(commandBuffer.get())->finished);
+                }
+                auto terminationRequestCount = getTerminationRequestCount();
+                for(std::size_t i = 0; i < terminationRequestCount; i++)
+                {
+                    eventCallback(eventCallbackArg, ui::event::Quit());
+                }
+            }
         }
         catch(...)
         {

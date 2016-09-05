@@ -51,53 +51,7 @@ class Thread final
     Thread &operator=(const Thread &) = delete;
 
 public:
-    class Id final
-    {
-        friend class Thread;
-        friend Id thisThread::getId() noexcept;
-        template <>
-        friend struct std::hash<Id>;
-
-    private:
-        bool empty;
-        std::uintptr_t threadId;
-
-    public:
-        constexpr Id() noexcept : empty(true), threadId()
-        {
-        }
-        friend constexpr bool operator==(Id a, Id b) noexcept
-        {
-            return a.empty ? b.empty : !b.empty && a.threadId == b.threadId;
-        }
-        friend constexpr bool operator<(Id a, Id b) noexcept
-        {
-            return a.empty ? !b.empty : !b.empty && a.threadId < b.threadId;
-        }
-        friend constexpr bool operator!=(Id a, Id b) noexcept
-        {
-            return !(a == b);
-        }
-        friend constexpr bool operator>(Id a, Id b) noexcept
-        {
-            return b < a;
-        }
-        friend constexpr bool operator<=(Id a, Id b) noexcept
-        {
-            return !(a > b);
-        }
-        friend constexpr bool operator>=(Id a, Id b) noexcept
-        {
-            return !(a < b);
-        }
-        template <typename CharT, typename Traits>
-        std::basic_ostream<CharT, Traits> &operator<<(std::basic_ostream<CharT, Traits> &os, Id id)
-        {
-            if(id.empty)
-                return os << "empty";
-            return os << id.threadId;
-        }
-    };
+    class Id;
 
 private:
     void *value;
@@ -114,7 +68,7 @@ private:
         typename std::decay<Fn>::type fn;
         std::tuple<typename std::decay<Args>::type...> args;
         explicit ThreadFunction(Fn &&fn, Args &&... args)
-            : fn(std::forward<Fn>(fn)), args(std::forward<Args...>(args...))
+            : fn(std::forward<Fn>(fn)), args(std::forward<Args>(args)...)
         {
         }
         template <std::size_t... indices>
@@ -124,7 +78,7 @@ private:
         }
         virtual void run() noexcept override
         {
-            run(util::IndexSequenceFor<Args...>);
+            run(util::IndexSequenceFor<Args...>());
         }
     };
 
@@ -156,8 +110,7 @@ public:
     explicit Thread(const std::string &name, Fn &&fn, Args &&... args)
         : Thread()
     {
-        makeThread(ThreadFunction<Fn, Args...>::run,
-                   std::unique_ptr<ThreadFunction<Fn, Args...>>(new ThreadFunction<Fn, Args...>(
+        makeThread(std::unique_ptr<ThreadFunctionBase>(new ThreadFunction<Fn, Args...>(
                        std::forward<Fn>(fn), std::forward<Args>(args)...)),
                    name).swap(*this);
     }
@@ -200,6 +153,54 @@ void sleepUntil(const std::chrono::time_point<Clock, Duration> &sleepTime)
 {
     std::this_thread::sleep_until(sleepTime);
 }
+}
+
+class Thread::Id final
+{
+    friend class Thread;
+    friend Id thisThread::getId() noexcept;
+    friend struct std::hash<Id>;
+
+private:
+    bool empty;
+    std::uintptr_t threadId;
+
+public:
+    constexpr Id() noexcept : empty(true), threadId()
+    {
+    }
+    friend constexpr bool operator==(Id a, Id b) noexcept
+    {
+        return a.empty ? b.empty : !b.empty && a.threadId == b.threadId;
+    }
+    friend constexpr bool operator<(Id a, Id b) noexcept
+    {
+        return a.empty ? !b.empty : !b.empty && a.threadId < b.threadId;
+    }
+    friend constexpr bool operator!=(Id a, Id b) noexcept
+    {
+        return !(a == b);
+    }
+    friend constexpr bool operator>(Id a, Id b) noexcept
+    {
+        return b < a;
+    }
+    friend constexpr bool operator<=(Id a, Id b) noexcept
+    {
+        return !(a > b);
+    }
+    friend constexpr bool operator>=(Id a, Id b) noexcept
+    {
+        return !(a < b);
+    }
+    template <typename CharT, typename Traits>
+    friend std::basic_ostream<CharT, Traits> &operator<<(std::basic_ostream<CharT, Traits> &os,
+                                                         Id id)
+    {
+        if(id.empty)
+            return os << "empty";
+        return os << id.threadId;
+    }
 };
 }
 }
