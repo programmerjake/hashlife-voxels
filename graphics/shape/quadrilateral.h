@@ -40,13 +40,13 @@ inline void renderQuadrilateral(RenderBuffer &renderBuffer,
                                 RenderLayer renderLayer,
                                 Texture texture,
                                 util::Vector3F p0,
-                                ColorI c0,
+                                ColorF c0,
                                 util::Vector3F p1,
-                                ColorI c1,
+                                ColorF c1,
                                 util::Vector3F p2,
-                                ColorI c2,
+                                ColorF c2,
                                 util::Vector3F p3,
-                                ColorI c3)
+                                ColorF c3)
 {
     auto normal = getTriangleNormalOrZero(p0, p1, p2);
     Vertex v0(p0, {texture.nunv.u, texture.nunv.v}, c0, normal);
@@ -61,13 +61,13 @@ inline void renderQuadrilateral(RenderBuffer &renderBuffer,
                                 RenderLayer renderLayer,
                                 Texture texture,
                                 util::Vector3F p0,
-                                ColorI c0,
+                                ColorF c0,
                                 util::Vector3F p1,
-                                ColorI c1,
+                                ColorF c1,
                                 util::Vector3F p2,
-                                ColorI c2,
+                                ColorF c2,
                                 util::Vector3F p3,
-                                ColorI c3,
+                                ColorF c3,
                                 const Transform &tform)
 {
     auto normal = transformNormal(tform, getTriangleNormalOrZero(p0, p1, p2));

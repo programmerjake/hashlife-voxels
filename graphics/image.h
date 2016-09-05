@@ -116,6 +116,38 @@ public:
     {
         return pixels;
     }
+    std::size_t index(std::size_t x, std::size_t y) const noexcept
+    {
+        constexprAssert(x < width && y < height);
+        return (x + y * width) * bytesPerPixel;
+    }
+    std::uint8_t *data(std::size_t x, std::size_t y) noexcept
+    {
+        return pixels + index(x, y);
+    }
+    const std::uint8_t *data(std::size_t x, std::size_t y) const noexcept
+    {
+        return pixels + index(x, y);
+    }
+    void setPixel(std::size_t x, std::size_t y, const ColorU8 &color) noexcept
+    {
+        auto *pixel = data(x, y);
+        pixel[0] = color.red;
+        pixel[1] = color.green;
+        pixel[2] = color.blue;
+        pixel[3] = color.opacity;
+    }
+    ColorU8 getPixel(std::size_t x, std::size_t y) const noexcept
+    {
+        auto *pixel = data(x, y);
+        return rgbaU8(pixel[0], pixel[1], pixel[2], pixel[3]);
+    }
+    void copy(const Image &source) noexcept
+    {
+        constexprAssert(width == source.width && height == source.height);
+        for(std::size_t i = 0, end = width * height * bytesPerPixel; i < end; i++)
+            pixels[i] = source.pixels[i];
+    }
     static std::shared_ptr<Image> load(const std::shared_ptr<io::InputStream> &inputStream);
     static void registerLoader(std::unique_ptr<Loader> loader) noexcept;
     static void init();

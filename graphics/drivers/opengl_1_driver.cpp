@@ -24,7 +24,7 @@
 #include <stdexcept>
 #include <list>
 #include <vector>
-#include <algorithm>
+#include "../graphics_util/texture_atlas.h"
 
 namespace programmerjake
 {
@@ -36,184 +36,335 @@ namespace drivers
 {
 struct OpenGL1Driver::Implementation final
 {
-    struct TextureSize final
-    {
-        std::size_t width, height;
-        constexpr TextureSize(std::uint32_t width, std::uint32_t height) noexcept : width(width),
-                                                                                    height(height)
-        {
-        }
-        explicit TextureSize(const Image &image) noexcept : width(image.width), height(image.height)
-        {
-        }
-        constexpr bool operator==(const TextureSize &rt) const noexcept
-        {
-            return width == rt.width && height == rt.height;
-        }
-        constexpr bool operator!=(const TextureSize &rt) const noexcept
-        {
-            return !operator==(rt);
-        }
-        constexpr std::size_t getMaxDimension() const noexcept
-        {
-            return width > height ? width : height;
-        }
-        constexpr std::size_t getMinDimension() const noexcept
-        {
-            return width > height ? height : width;
-        }
-
-    private:
-        constexpr bool lessHelper(std::size_t maxDimension,
-                                  std::size_t minDimension,
-                                  const TextureSize &rt,
-                                  std::size_t rtMaxDimension,
-                                  std::size_t rtMinDimension) const noexcept
-        {
-            return maxDimension != rtMaxDimension ?
-                       maxDimension < rtMaxDimension :
-                       minDimension == rtMinDimension ? width < rt.width : minDimension
-                                                                               < rtMinDimension;
-        }
-
-    public:
-        constexpr bool operator<(const TextureSize &rt) const noexcept
-        {
-            return lessHelper(getMaxDimension(),
-                              getMinDimension(),
-                              rt,
-                              rt.getMaxDimension(),
-                              rt.getMinDimension());
-        }
-        constexpr bool operator>(const TextureSize &rt) const noexcept
-        {
-            return rt.operator<(*this);
-        }
-        constexpr bool operator<=(const TextureSize &rt) const noexcept
-        {
-            return !(operator>(rt));
-        }
-        constexpr bool operator>=(const TextureSize &rt) const noexcept
-        {
-            return !(operator<(rt));
-        }
-    };
+    using graphics_util::texture_atlas::TextureSize;
     struct OpenGLTexture final : public TextureImplementation
     {
         const std::shared_ptr<Image> image;
         std::size_t x, y;
-        explicit OpenGLTexture(std::shared_ptr<Image> image) : image(std::move(image)), x(), y()
+        const TextureSize size;
+        bool upToDate = false;
+        explicit OpenGLTexture(std::shared_ptr<Image> image)
+            : image(std::move(image)), x(), y(), size(*this->image)
         {
         }
     };
-    struct TextureGroup final
+    struct OpenGLVertex final
     {
-        TextureSize size;
-        std::vector<OpenGLTexture *> textures;
-        TextureGroup(TextureSize size, std::vector<OpenGLTexture *> textures)
-            : size(size), textures(std::move(textures))
+        float positionX;
+        float positionY;
+        float positionZ;
+        std::uint8_t red;
+        std::uint8_t green;
+        std::uint8_t blue;
+        std::uint8_t opacity;
+        float textureCoordinateU;
+        float textureCoordinateV;
+        constexpr OpenGLVertex(const util::Vector3F &position,
+                               const ColorU8 &color,
+                               const TextureCoordinates &textureCoordinates)
+            : positionX(position.x),
+              positionY(position.y),
+              positionZ(position.z),
+              red(color.red),
+              green(color.green),
+              blue(color.blue),
+              opacity(color.opacity),
+              textureCoordinateU(textureCoordinates.u),
+              textureCoordinateV(textureCoordinates.v)
         {
+        }
+    };
+    struct OpenGLTriangle final
+    {
+        OpenGLVertex vertices[3];
+        constexpr OpenGLTriangle(const OpenGLVertex &v0,
+                                 const OpenGLVertex &v1,
+                                 const OpenGLVertex &v2)
+            : vertices{v0, v1, v2}
+        {
+        }
+    };
+    struct OpenGLRenderBuffer final : public RenderBuffer
+    {
+#error finish
+    private:
+        struct TriangleBuffer final
+        {
+            std::unique_ptr<TriangleWithoutNormal[]> buffer;
+            std::unique_ptr<OpenGLTriangle[]> openGLTriangles;
+            std::size_t bufferSize;
+            std::size_t bufferUsed;
+            TriangleBuffer(std::size_t size = 0)
+                : buffer(size > 0 ? new TriangleWithoutNormal[size] : nullptr),
+                  openGLTriangles(size > 0 ? new OpenGLTriangle[size] : nullptr),
+                  bufferSize(size),
+                  bufferUsed(0)
+            {
+            }
+            std::size_t allocateSpace(std::size_t triangleCount) noexcept
+            {
+                constexprAssert(triangleCount <= bufferSize
+                                && triangleCount + bufferUsed <= bufferSize);
+                auto retval = bufferUsed;
+                bufferUsed += triangleCount;
+                return retval;
+            }
+            void append(const Triangle *triangles, std::size_t triangleCount) noexcept
+            {
+                std::size_t location = allocateSpace(triangleCount);
+                for(std::size_t i = 0; i < triangleCount; i++)
+                {
+                    constexprAssert(
+                        triangles[i].texture.value == nullptr
+                        || dynamic_cast<const OpenGLTexture *>(triangles[i].texture.value));
+                    buffer[location + i] = triangles[i];
+                }
+            }
+            void append(const TriangleWithoutNormal *triangles, std::size_t triangleCount) noexcept
+            {
+                std::size_t location = allocateSpace(triangleCount);
+                for(std::size_t i = 0; i < triangleCount; i++)
+                {
+                    constexprAssert(
+                        triangles[i].texture.value == nullptr
+                        || dynamic_cast<const OpenGLTexture *>(triangles[i].texture.value));
+                    buffer[location + i] = triangles[i];
+                }
+            }
+            void append(const Triangle &triangle) noexcept
+            {
+                append(&triangle, 1);
+            }
+            void append(const TriangleWithoutNormal &triangle) noexcept
+            {
+                append(&triangle, 1);
+            }
+            std::size_t sizeLeft() const noexcept
+            {
+                return bufferSize - bufferUsed;
+            }
+        };
+        util::EnumArray<TriangleBuffer, RenderLayer> triangleBuffers;
+        bool finished;
+
+    public:
+        OpenGLRenderBuffer(const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
+            : triangleBuffers(), finished(false)
+        {
+            for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                triangleBuffers[renderLayer] = TriangleBuffer(maximumSizes[renderLayer]);
+            }
+        }
+        bool isFinished() const noexcept
+        {
+            return finished;
+        }
+        virtual std::size_t getMaximumAdditionalSize(RenderLayer renderLayer) const
+            noexcept override
+        {
+            return triangleBuffers[renderLayer].sizeLeft();
+        }
+        virtual void reserveAdditional(RenderLayer renderLayer,
+                                       std::size_t howManyTriangles) override
+        {
+            constexprAssert(!finished);
+        }
+        virtual void appendTriangles(RenderLayer renderLayer,
+                                     const Triangle *triangles,
+                                     std::size_t triangleCount) override
+        {
+            constexprAssert(!finished);
+            triangleBuffers[renderLayer].append(triangles, triangleCount);
+        }
+        virtual void appendTriangles(RenderLayer renderLayer,
+                                     const Triangle *triangles,
+                                     std::size_t triangleCount,
+                                     const Transform &tform) override
+        {
+            constexprAssert(!finished);
+            for(std::size_t i = 0; i < triangleCount; i++)
+                triangleBuffers[renderLayer].append(
+                    transform(tform, static_cast<TriangleWithoutNormal>(triangles[i])));
+        }
+        virtual void appendBuffer(const ReadableRenderBuffer &buffer) override
+        {
+            constexprAssert(!finished);
+            for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                auto &triangleBuffer = triangleBuffers[renderLayer];
+                std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+                std::size_t location = triangleBuffer.allocateSpace(triangleCount);
+                buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+                for(std::size_t i = 0; i < triangleCount; i++)
+                {
+                    constexprAssert(triangleBuffer.buffer[location + i].texture.value == nullptr
+                                    || dynamic_cast<const OpenGLTexture *>(
+                                           triangleBuffer.buffer[location + i].texture.value));
+                }
+            }
+        }
+        virtual void appendBuffer(const ReadableRenderBuffer &buffer,
+                                  const Transform &tform) override
+        {
+            constexprAssert(!finished);
+            for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                auto &triangleBuffer = triangleBuffers[renderLayer];
+                std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+                std::size_t location = triangleBuffer.allocateSpace(triangleCount);
+                buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+                for(std::size_t i = 0; i < triangleCount; i++)
+                {
+                    constexprAssert(triangleBuffer.buffer[location + i].texture.value == nullptr
+                                    || dynamic_cast<const OpenGLTexture *>(
+                                           triangleBuffer.buffer[location + i].texture.value));
+                    triangleBuffer.buffer[location + i] =
+                        transform(tform, triangleBuffer.buffer[location + i]);
+                }
+            }
+        }
+        virtual void finish() noexcept override
+        {
+            finished = true;
+        }
+    };
+    struct OpenGLCommandBuffer final : public CommandBuffer
+    {
+        struct Command final
+        {
+            enum class Type
+            {
+                Clear,
+                Render,
+            };
+            Type type;
+            bool colorFlag;
+            bool depthFlag;
+            ColorF backgroundColor;
+            std::shared_ptr<RenderBuffer> renderBuffer;
+            Transform modelTransform;
+            Transform viewTransform;
+            Transform projectionTransform;
+            Command(bool colorFlag, bool depthFlag, ColorF backgroundColor)
+                : type(Type::Clear),
+                  colorFlag(colorFlag),
+                  depthFlag(depthFlag),
+                  backgroundColor(backgroundColor),
+                  renderBuffer(),
+                  modelTransform(),
+                  viewTransform(),
+                  projectionTransform()
+            {
+            }
+            Command(const std::shared_ptr<RenderBuffer> &renderBuffer,
+                    const Transform &modelTransform,
+                    const Transform &viewTransform,
+                    const Transform &projectionTransform)
+                : type(Type::Render),
+                  colorFlag(),
+                  depthFlag(),
+                  backgroundColor(),
+                  renderBuffer(renderBuffer),
+                  modelTransform(modelTransform),
+                  viewTransform(viewTransform),
+                  projectionTransform(projectionTransform)
+            {
+            }
+        };
+        std::vector<Command> commands;
+        bool finished = false;
+        virtual void appendClearCommand(bool colorFlag,
+                                        bool depthFlag,
+                                        const ColorF &backgroundColor) override
+        {
+            constexprAssert(!finished);
+            commands.push_back(Command(colorFlag, depthFlag, backgroundColor));
+        }
+        virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
+                                         const Transform &modelTransform,
+                                         const Transform &viewTransform,
+                                         const Transform &projectionTransform) override
+        {
+            constexprAssert(!finished);
+            commands.push_back(
+                Command(renderBuffer, modelTransform, viewTransform, projectionTransform));
+        }
+        virtual void appendPresentCommandAndFinish() override
+        {
+            constexprAssert(!finished);
+            finished = true;
         }
     };
     std::mutex textureLock;
     std::list<OpenGLTexture> textures;
+    std::vector<OpenGLTexture *> updatedTextures;
     bool textureLayoutNeeded = true;
-    static std::uint64_t powerOf2Ceiling(std::uint64_t v) noexcept
+    TextureSize currentTextureSize;
+    GLuint textureId = 0;
+    void layoutTextures(std::unique_lock<std::mutex> &lockedTextureLock)
     {
-        v--;
-        v |= v >> 1;
-        v |= v >> 2;
-        v |= v >> 4;
-        v |= v >> 8;
-        v |= v >> 16;
-        v |= v >> 32;
-        return v + 1;
-    }
-    static std::uint32_t powerOf2Ceiling(std::uint32_t v) noexcept
-    {
-        v--;
-        v |= v >> 1;
-        v |= v >> 2;
-        v |= v >> 4;
-        v |= v >> 8;
-        v |= v >> 16;
-        return v + 1;
-    }
-    static std::uint16_t powerOf2Ceiling(std::uint16_t v) noexcept
-    {
-        v--;
-        v |= v >> 1;
-        v |= v >> 2;
-        v |= v >> 4;
-        v |= v >> 8;
-        return v + 1;
-    }
-    static bool textureGroupCompareFunction(const TextureGroup &a, const TextureGroup &b) noexcept
-    {
-        return a.size > b.size;
-    }
-    static void layoutTextures(std::list<OpenGLTexture> &textures)
-    {
-        std::vector<TextureGroup> textureGroups;
-        for(OpenGLTexture &texture : textures)
+        updatedTextures.clear();
+        TextureSize newTextureSize =
+            graphics_util::texture_atlas::TextureAtlas<OpenGLTexture,
+                                                       &OpenGLTexture::x,
+                                                       &OpenGLTexture::y,
+                                                       &OpenGLTexture::size>::layout(textures
+                                                                                         .begin(),
+                                                                                     textures
+                                                                                         .end());
+        if(textureId == 0 || newTextureSize != currentTextureSize)
         {
-            texture.x = 0;
-            texture.y = 0;
-            TextureSize size(texture);
-            size.width = size.width == 0 ? 1 : powerOf2Ceiling(size.width);
-            size.height = size.height == 0 ? 1 : powerOf2Ceiling(size.height);
-            textureGroups.push_back(TextureGroup(size, {&texture}));
-            std::push_heap(textureGroups.begin(), textureGroups.end(), textureGroupCompareFunction);
+            currentTextureSize = newTextureSize;
+            if(textureId != 0)
+                glDeleteTextures(1, &textureId);
+            glGenTextures(1, &textureId);
+            glBindTexture(GL_TEXTURE_2D, textureId);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         srgbTexturesSupported ? GL_SRGB_ALPHA_EXT : GL_RGBA,
+                         newTextureSize.width,
+                         newTextureSize.height,
+                         0,
+                         GL_RGBA,
+                         GL_UNSIGNED_BYTE,
+                         nullptr);
         }
-        std::vector<TextureGroup> currentGroups;
-        while(textureGroups.size() > 1)
+        for(auto &texture : textures)
         {
-            currentGroups.clear();
-            auto currentSize = textureGroups.front().size;
-            do
-            {
-                currentGroups.push_back(TextureGroup(currentSize, {}));
-                currentGroups.back().textures.swap(textureGroups.front().textures);
-                std::pop_heap(
-                    textureGroups.begin(), textureGroups.end(), textureGroupCompareFunction);
-                textureGroups.pop_back();
-            } while(!textureGroups.empty() && currentSize == textureGroups.front().size);
-            auto newSize = currentSize;
-            if(currentSize.width < currentSize.height)
-                newSize.width *= 2;
-            else
-                newSize.height *= 2;
-            while(!currentGroups.empty())
-            {
-                TextureGroup newGroup(newSize, {});
-                newGroup.textures.swap(currentGroups.back().textures);
-                currentGroups.pop_back();
-                if(!currentGroups.empty())
-                {
-                    newGroup.textures.reserve(newGroup.textures.size()
-                                              + currentGroups.back().textures.size());
-                    if(currentSize.width < currentSize.height)
-                    {
-                        for(auto *texture : currentGroups.back().textures)
-                        {
-                            texture->x += currentSize.width;
-                            newGroup.textures.push_back(texture);
-                        }
-                    }
-                    else
-                    {
-                        for(auto *texture : currentGroups.back().textures)
-                        {
-                            texture->y += currentSize.height;
-                            newGroup.textures.push_back(texture);
-                        }
-                    }
-                    currentGroups.pop_back();
-                }
-                textureGroups.push_back(std::move(newGroup));
-                std::push_heap(
-                    textureGroups.begin(), textureGroups.end(), textureGroupCompareFunction);
-            }
+            texture.upToDate = true;
+            glTexSubImage2D(GL_TEXTURE_2D,
+                            0,
+                            texture.x,
+                            texture.y,
+                            texture.size.width,
+                            texture.size.height,
+                            GL_RGBA,
+                            GL_UNSIGNED_BYTE,
+                            texture.image->data());
+        }
+    }
+    void updateTextures(std::unique_lock<std::mutex> &lockedTextureLock)
+    {
+        if(textureLayoutNeeded)
+        {
+            layoutTextures(lockedTextureLock);
+            return;
+        }
+        for(auto *texture : updatedTextures)
+        {
+            texture->upToDate = true;
+            glTexSubImage2D(GL_TEXTURE_2D,
+                            0,
+                            texture->x,
+                            texture->y,
+                            texture->size.width,
+                            texture->size.height,
+                            GL_RGBA,
+                            GL_UNSIGNED_BYTE,
+                            texture->image->data());
         }
     }
     std::atomic_bool contextRecreationNeeded{false};
@@ -221,8 +372,13 @@ struct OpenGL1Driver::Implementation final
     SDL_GLContext openGLContext = nullptr;
     explicit Implementation(OpenGL1Driver *driver) : driver(*driver)
     {
+        auto image = Image::make(1, 1);
+        image->setPixel(0, 0, colorizeIdentityU8());
+        textures.push_back(OpenGLTexture(image));
     }
     bool libraryLoaded = false;
+    bool srgbTexturesSupported = false;
+    bool srgbFramebufferSupported = false;
 
 #define OpenGLBaseFunctions()            \
     FN(glEnable, ENABLE)                 \
@@ -235,6 +391,7 @@ struct OpenGL1Driver::Implementation final
     FN(glBlendFunc, BLENDFUNC)           \
     FN(glTexEnvi, TEXENVI)               \
     FN(glHint, HINT)                     \
+    FN(glBindTexture, BINDTEXTURE)       \
     FN(glEnableClientState, ENABLECLIENTSTATE)
 
 #define FN(a, b)                           \
@@ -253,6 +410,8 @@ struct OpenGL1Driver::Implementation final
 
         OpenGLBaseFunctions();
 #undef FN
+        srgbTexturesSupported = SDL_GL_ExtensionSupported("GL_EXT_texture_sRGB");
+        srgbFramebufferSupported = SDL_GL_ExtensionSupported("GL_ARB_framebuffer_sRGB");
     }
 #undef OpenGLBaseFunctions
     void setupContext()
@@ -262,7 +421,7 @@ struct OpenGL1Driver::Implementation final
         glEnable(GL_ALPHA_TEST);
         glEnable(GL_CULL_FACE);
         glEnable(GL_BLEND);
-        if(SDL_GL_ExtensionSupported("GL_ARB_framebuffer_sRGB"))
+        if(srgbFramebufferSupported)
             glEnable(GL_FRAMEBUFFER_SRGB);
         glDepthFunc(GL_LEQUAL);
         glCullFace(GL_BACK);
@@ -274,6 +433,10 @@ struct OpenGL1Driver::Implementation final
         glEnableClientState(GL_COLOR_ARRAY);
         glEnableClientState(GL_TEXTURE_COORD_ARRAY);
         glEnableClientState(GL_VERTEX_ARRAY);
+    }
+    void renderFrame(std::shared_ptr<CommandBuffer> commandBuffer)
+    {
+#error finish
     }
 };
 
@@ -289,7 +452,7 @@ void OpenGL1Driver::renderFrame(std::shared_ptr<CommandBuffer> commandBuffer)
         destroyGraphicsContext();
         createGraphicsContext();
     }
-#error finish
+    implementation->renderFrame(std::move(commandBuffer));
 }
 
 SDL_Window *OpenGL1Driver::createWindow(int x, int y, int w, int h, std::uint32_t flags)
@@ -323,6 +486,7 @@ void OpenGL1Driver::destroyGraphicsContext() noexcept
     constexprAssert(implementation->openGLContext);
     SDL_GL_DeleteContext(implementation->openGLContext);
     implementation->openGLContext = nullptr;
+    implementation->textureId = 0;
 }
 
 void OpenGL1Driver::setGraphicsContextRecreationNeeded() noexcept
@@ -332,12 +496,26 @@ void OpenGL1Driver::setGraphicsContextRecreationNeeded() noexcept
 
 TextureId OpenGL1Driver::makeTexture(const std::shared_ptr<const Image> &image)
 {
-#error finish
+    constexprAssert(image);
+    std::unique_lock<std::mutex> lockedTextureLock(implementation->textureLock);
+    implementation->textureLayoutNeeded = true;
+    implementation->textures.push_back(Implementation::OpenGLTexture(image->duplicate()));
+    return TextureId(&implementation->textures.back());
 }
 
 void OpenGL1Driver::setNewImageData(TextureId texture, const std::shared_ptr<const Image> &image)
 {
-#error finish
+    constexprAssert(image);
+    constexprAssert(texture.value);
+    constexprAssert(dynamic_cast<Implementation::OpenGLTexture *>(texture.value));
+    std::unique_lock<std::mutex> lockedTextureLock(implementation->textureLock);
+    auto openGLTexture = static_cast<Implementation::OpenGLTexture *>(texture.value);
+    openGLTexture->image->copy(*image);
+    if(openGLTexture->upToDate)
+    {
+        openGLTexture->upToDate = false;
+        implementation->updatedTextures.push_back(openGLTexture);
+    }
 }
 
 std::shared_ptr<RenderBuffer> OpenGL1Driver::makeBuffer(
@@ -346,9 +524,9 @@ std::shared_ptr<RenderBuffer> OpenGL1Driver::makeBuffer(
 #error finish
 }
 
-std::shared_ptr<OpenGL1Driver::CommandBuffer> OpenGL1Driver::makeCommandBuffer()
+std::shared_ptr<Driver::CommandBuffer> OpenGL1Driver::makeCommandBuffer()
 {
-#error finish
+    return std::make_shared<Implementation::OpenGLCommandBuffer>();
 }
 }
 }

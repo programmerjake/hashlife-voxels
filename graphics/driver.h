@@ -48,7 +48,7 @@ public:
         virtual ~CommandBuffer() = default;
         virtual void appendClearCommand(bool colorFlag,
                                         bool depthFlag,
-                                        const ColorI &backgroundColor) = 0;
+                                        const ColorF &backgroundColor) = 0;
         virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
                                          const Transform &modelTransform,
                                          const Transform &viewTransform,

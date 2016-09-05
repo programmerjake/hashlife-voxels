@@ -138,8 +138,8 @@ std::shared_ptr<Image> PNGImageLoader::load(
     for(std::size_t i = 0; i < implementation->image->height; i++)
     {
         static_assert(std::is_same<unsigned char, std::uint8_t>::value, "");
-        implementation->imageRows[i] =
-            reinterpret_cast<::png_bytep>(implementation->image->data() + i * Image::bytesPerPixel);
+        implementation->imageRows[i] = reinterpret_cast<::png_bytep>(
+            implementation->image->data(0, implementation->image->height - i - 1));
     }
     ::png_set_strip_16(pngStruct);
     ::png_set_packing(pngStruct);

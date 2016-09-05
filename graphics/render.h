@@ -84,6 +84,9 @@ public:
     virtual void readTriangles(RenderLayer renderLayer,
                                Triangle *buffer,
                                std::size_t bufferSize) const noexcept = 0;
+    virtual void readTriangles(RenderLayer renderLayer,
+                               TriangleWithoutNormal *buffer,
+                               std::size_t bufferSize) const noexcept = 0;
 };
 
 class MemoryRenderBuffer final : public ReadableRenderBuffer
@@ -184,6 +187,15 @@ public:
     }
     virtual void readTriangles(RenderLayer renderLayer,
                                Triangle *buffer,
+                               std::size_t bufferSize) const noexcept override
+    {
+        auto &triangleBuffer = triangleBuffers[renderLayer];
+        constexprAssert(bufferSize <= triangleBuffer.size());
+        for(std::size_t i = 0; i < bufferSize; i++)
+            buffer[i] = triangleBuffer[i];
+    }
+    virtual void readTriangles(RenderLayer renderLayer,
+                               TriangleWithoutNormal *buffer,
                                std::size_t bufferSize) const noexcept override
     {
         auto &triangleBuffer = triangleBuffers[renderLayer];
@@ -304,6 +316,15 @@ public:
     }
     virtual void readTriangles(RenderLayer renderLayer,
                                Triangle *buffer,
+                               std::size_t bufferSize) const noexcept override
+    {
+        auto &triangleBuffer = triangleBuffers[renderLayer];
+        constexprAssert(bufferSize <= triangleBuffer.bufferUsed);
+        for(std::size_t i = 0; i < bufferSize; i++)
+            buffer[i] = triangleBuffer.buffer[i];
+    }
+    virtual void readTriangles(RenderLayer renderLayer,
+                               TriangleWithoutNormal *buffer,
                                std::size_t bufferSize) const noexcept override
     {
         auto &triangleBuffer = triangleBuffers[renderLayer];

@@ -197,7 +197,7 @@ private:
         bool finished = false;
         virtual void appendClearCommand(bool colorFlag,
                                         bool depthFlag,
-                                        const ColorI &backgroundColor) override
+                                        const ColorF &backgroundColor) override
         {
             constexprAssert(!finished);
         }

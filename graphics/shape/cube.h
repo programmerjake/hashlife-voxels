@@ -45,7 +45,7 @@ inline void renderCubeFaceNX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     const auto p0 = util::Vector3F(nxnynz.x, nxnynz.y, nxnynz.z);
     const auto c0 = colors[0][0][0];
@@ -63,7 +63,7 @@ inline void renderCubeFaceNX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                              const Transform &tform)
 {
     const auto p0 = util::Vector3F(nxnynz.x, nxnynz.y, nxnynz.z);
@@ -82,7 +82,7 @@ inline void renderCubeFacePX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     const auto p1 = util::Vector3F(pxpypz.x, nxnynz.y, nxnynz.z);
     const auto c1 = colors[1][0][0];
@@ -100,7 +100,7 @@ inline void renderCubeFacePX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                              const Transform &tform)
 {
     const auto p1 = util::Vector3F(pxpypz.x, nxnynz.y, nxnynz.z);
@@ -119,7 +119,7 @@ inline void renderCubeFaceNY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     const auto p0 = util::Vector3F(nxnynz.x, nxnynz.y, nxnynz.z);
     const auto c0 = colors[0][0][0];
@@ -137,7 +137,7 @@ inline void renderCubeFaceNY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                              const Transform &tform)
 {
     const auto p0 = util::Vector3F(nxnynz.x, nxnynz.y, nxnynz.z);
@@ -156,7 +156,7 @@ inline void renderCubeFacePY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     const auto p2 = util::Vector3F(nxnynz.x, pxpypz.y, nxnynz.z);
     const auto c2 = colors[0][1][0];
@@ -174,7 +174,7 @@ inline void renderCubeFacePY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                              const Transform &tform)
 {
     const auto p2 = util::Vector3F(nxnynz.x, pxpypz.y, nxnynz.z);
@@ -193,7 +193,7 @@ inline void renderCubeFaceNZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     const auto p0 = util::Vector3F(nxnynz.x, nxnynz.y, nxnynz.z);
     const auto c0 = colors[0][0][0];
@@ -211,7 +211,7 @@ inline void renderCubeFaceNZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                              const Transform &tform)
 {
     const auto p0 = util::Vector3F(nxnynz.x, nxnynz.y, nxnynz.z);
@@ -230,7 +230,7 @@ inline void renderCubeFacePZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     const auto p4 = util::Vector3F(nxnynz.x, nxnynz.y, pxpypz.z);
     const auto c4 = colors[0][0][1];
@@ -248,7 +248,7 @@ inline void renderCubeFacePZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                             const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                              const Transform &tform)
 {
     const auto p4 = util::Vector3F(nxnynz.x, nxnynz.y, pxpypz.z);
@@ -268,7 +268,7 @@ inline void renderCubeFace(RenderBuffer &renderBuffer,
                            util::EnumArray<Texture, block::BlockFace> textures,
                            util::Vector3F nxnynz,
                            util::Vector3F pxpypz,
-                           const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                           const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     switch(face)
     {
@@ -306,7 +306,7 @@ inline void renderCubeFace(RenderBuffer &renderBuffer,
                            util::EnumArray<Texture, block::BlockFace> textures,
                            util::Vector3F nxnynz,
                            util::Vector3F pxpypz,
-                           const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                           const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                            const Transform &tform)
 {
     switch(face)
@@ -375,7 +375,7 @@ inline void renderCube(RenderBuffer &renderBuffer,
                        util::EnumArray<bool, block::BlockFace> faceFlags,
                        util::Vector3F nxnynz,
                        util::Vector3F pxpypz,
-                       const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors)
+                       const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors)
 {
     if(faceFlags[block::BlockFace::NX])
         renderCubeFaceNX(
@@ -403,7 +403,7 @@ inline void renderCube(RenderBuffer &renderBuffer,
                        util::EnumArray<bool, block::BlockFace> faceFlags,
                        util::Vector3F nxnynz,
                        util::Vector3F pxpypz,
-                       const util::array<util::array<util::array<ColorI, 2>, 2>, 2> &colors,
+                       const util::array<util::array<util::array<ColorF, 2>, 2>, 2> &colors,
                        const Transform &tform)
 {
     if(faceFlags[block::BlockFace::NX])
@@ -461,7 +461,7 @@ inline void renderCubeFaceNX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz = util::Vector3F(0),
                              util::Vector3F pxpypz = util::Vector3F(1),
-                             ColorI color = colorizeIdentityI())
+                             ColorF color = colorizeIdentityF())
 {
     renderCubeFaceNX(renderBuffer,
                      renderLayer,
@@ -476,7 +476,7 @@ inline void renderCubeFaceNX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             ColorI color,
+                             ColorF color,
                              const Transform &tform)
 {
     renderCubeFaceNX(renderBuffer,
@@ -493,7 +493,7 @@ inline void renderCubeFacePX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz = util::Vector3F(0),
                              util::Vector3F pxpypz = util::Vector3F(1),
-                             ColorI color = colorizeIdentityI())
+                             ColorF color = colorizeIdentityF())
 {
     renderCubeFacePX(renderBuffer,
                      renderLayer,
@@ -508,7 +508,7 @@ inline void renderCubeFacePX(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             ColorI color,
+                             ColorF color,
                              const Transform &tform)
 {
     renderCubeFacePX(renderBuffer,
@@ -525,7 +525,7 @@ inline void renderCubeFaceNY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz = util::Vector3F(0),
                              util::Vector3F pxpypz = util::Vector3F(1),
-                             ColorI color = colorizeIdentityI())
+                             ColorF color = colorizeIdentityF())
 {
     renderCubeFaceNY(renderBuffer,
                      renderLayer,
@@ -540,7 +540,7 @@ inline void renderCubeFaceNY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             ColorI color,
+                             ColorF color,
                              const Transform &tform)
 {
     renderCubeFaceNY(renderBuffer,
@@ -557,7 +557,7 @@ inline void renderCubeFacePY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz = util::Vector3F(0),
                              util::Vector3F pxpypz = util::Vector3F(1),
-                             ColorI color = colorizeIdentityI())
+                             ColorF color = colorizeIdentityF())
 {
     renderCubeFacePY(renderBuffer,
                      renderLayer,
@@ -572,7 +572,7 @@ inline void renderCubeFacePY(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             ColorI color,
+                             ColorF color,
                              const Transform &tform)
 {
     renderCubeFacePY(renderBuffer,
@@ -589,7 +589,7 @@ inline void renderCubeFaceNZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz = util::Vector3F(0),
                              util::Vector3F pxpypz = util::Vector3F(1),
-                             ColorI color = colorizeIdentityI())
+                             ColorF color = colorizeIdentityF())
 {
     renderCubeFaceNZ(renderBuffer,
                      renderLayer,
@@ -604,7 +604,7 @@ inline void renderCubeFaceNZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             ColorI color,
+                             ColorF color,
                              const Transform &tform)
 {
     renderCubeFaceNZ(renderBuffer,
@@ -621,7 +621,7 @@ inline void renderCubeFacePZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz = util::Vector3F(0),
                              util::Vector3F pxpypz = util::Vector3F(1),
-                             ColorI color = colorizeIdentityI())
+                             ColorF color = colorizeIdentityF())
 {
     renderCubeFacePZ(renderBuffer,
                      renderLayer,
@@ -636,7 +636,7 @@ inline void renderCubeFacePZ(RenderBuffer &renderBuffer,
                              Texture texture,
                              util::Vector3F nxnynz,
                              util::Vector3F pxpypz,
-                             ColorI color,
+                             ColorF color,
                              const Transform &tform)
 {
     renderCubeFacePZ(renderBuffer,
@@ -654,7 +654,7 @@ inline void renderCube(RenderBuffer &renderBuffer,
                        util::EnumArray<bool, block::BlockFace> faceFlags,
                        util::Vector3F nxnynz = util::Vector3F(0),
                        util::Vector3F pxpypz = util::Vector3F(1),
-                       ColorI color = colorizeIdentityI())
+                       ColorF color = colorizeIdentityF())
 {
     renderCube(renderBuffer,
                renderLayer,
@@ -671,7 +671,7 @@ inline void renderCube(RenderBuffer &renderBuffer,
                        util::EnumArray<bool, block::BlockFace> faceFlags,
                        util::Vector3F nxnynz,
                        util::Vector3F pxpypz,
-                       ColorI color,
+                       ColorF color,
                        const Transform &tform)
 {
     renderCube(renderBuffer,
@@ -690,7 +690,7 @@ inline void renderCubeFace(RenderBuffer &renderBuffer,
                            util::EnumArray<Texture, block::BlockFace> textures,
                            util::Vector3F nxnynz = util::Vector3F(0),
                            util::Vector3F pxpypz = util::Vector3F(1),
-                           ColorI color = colorizeIdentityI())
+                           ColorF color = colorizeIdentityF())
 {
     switch(face)
     {
@@ -728,7 +728,7 @@ inline void renderCubeFace(RenderBuffer &renderBuffer,
                            util::EnumArray<Texture, block::BlockFace> textures,
                            util::Vector3F nxnynz,
                            util::Vector3F pxpypz,
-                           ColorI color,
+                           ColorF color,
                            const Transform &tform)
 {
     switch(face)
