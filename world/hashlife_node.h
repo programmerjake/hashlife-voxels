@@ -131,25 +131,41 @@ public:
     {
         return isLeaf(level);
     }
-    constexpr std::uint32_t getSize() const
+    static constexpr std::uint32_t getSize(LevelType level)
     {
         static_assert(levelSize == 2, "");
         return 2UL << level;
     }
-    constexpr std::int32_t getHalfSize() const
+    constexpr std::uint32_t getSize() const
+    {
+        return getSize(level);
+    }
+    static constexpr std::int32_t getHalfSize(LevelType level)
     {
         static_assert(levelSize == 2, "");
         return 1L << level;
     }
-    constexpr std::int32_t getQuarterSize() const
+    constexpr std::int32_t getHalfSize() const
+    {
+        return getHalfSize(level);
+    }
+    static constexpr std::int32_t getQuarterSize(LevelType level)
     {
         static_assert(levelSize == 2, "");
         return (constexprAssert(level >= 1), 1L << (level - 1));
     }
-    constexpr std::int32_t getEighthSize() const
+    constexpr std::int32_t getQuarterSize() const
+    {
+        return getQuarterSize(level);
+    }
+    static constexpr std::int32_t getEighthSize(LevelType level)
     {
         static_assert(levelSize == 2, "");
         return (constexprAssert(level >= 2), 1L << (level - 2));
+    }
+    constexpr std::int32_t getEighthSize() const
+    {
+        return getEighthSize(level);
     }
     constexpr bool isPositionInside(std::int32_t position) const
     {
@@ -184,6 +200,12 @@ public:
         return !operator==(rt);
     }
     constexpr block::Block get(util::Vector3I32 position) const;
+    constexpr const HashlifeNodeBase *get(util::Vector3I32 position, LevelType returnedLevel) const;
+    HashlifeNodeBase *get(util::Vector3I32 position, LevelType returnedLevel)
+    {
+        return const_cast<HashlifeNodeBase *>(
+            static_cast<const HashlifeNodeBase *>(this)->get(position, returnedLevel));
+    }
     constexpr bool operator==(const HashlifeNodeBase &rt) const;
     std::size_t hash() const;
     HashlifeNodeBase *duplicate() const &;
@@ -403,6 +425,15 @@ constexpr block::Block HashlifeNodeBase::get(util::Vector3I32 position) const
                       static_cast<const HashlifeNonleafNode *>(this)
                           ->getChildNode(getIndex(position))
                           ->get(getChildPosition(position));
+}
+
+constexpr const HashlifeNodeBase *HashlifeNodeBase::get(util::Vector3I32 position,
+                                                        LevelType returnedLevel) const
+{
+    return (constexprAssert(level >= returnedLevel),
+            level == returnedLevel ? this : static_cast<const HashlifeNonleafNode *>(this)
+                                                ->getChildNode(getIndex(position))
+                                                ->get(getChildPosition(position), returnedLevel));
 }
 
 constexpr bool HashlifeNodeBase::operator==(const HashlifeNodeBase &rt) const

@@ -414,9 +414,12 @@ public:
     const BlockKind blockKind;
     const std::string name;
     const BlockedFaces blockedFaces;
-    virtual void render(graphics::MemoryRenderBuffer &renderBuffer,
-                        const BlockStepInput &stepInput,
-                        const BlockStepGlobalState &stepGlobalState) const = 0;
+    virtual void render(
+        graphics::MemoryRenderBuffer &renderBuffer,
+        const BlockStepInput &stepInput,
+        const BlockStepGlobalState &stepGlobalState,
+        const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
+        const lighting::BlockLighting &blockLightingForCenter) const = 0;
     virtual BlockStepPartOutput stepFromNXNYNZ(const BlockStepInput &stepInput,
                                                const BlockStepGlobalState &stepGlobalState) const
     {

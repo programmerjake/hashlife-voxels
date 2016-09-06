@@ -26,14 +26,21 @@
 #include "hashlife_node.h"
 #include "../block/block.h"
 #include "../block/block_descriptor.h"
+#include "../util/constexpr_array.h"
 #include <memory>
 #include <list>
 #include <iosfwd>
+#include <unordered_map>
+#include <utility>
 
 namespace programmerjake
 {
 namespace voxels
 {
+namespace graphics
+{
+class RenderBuffer;
+}
 namespace world
 {
 class HashlifeWorld final : public std::enable_shared_from_this<HashlifeWorld>
@@ -48,6 +55,67 @@ private:
 
     private:
         PrivateAccessTag() = default;
+    };
+    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 2;
+    struct RenderCacheKey final
+    {
+        friend class HashlifeWorld;
+        static constexpr std::size_t nodeArraySize = 3;
+        static constexpr std::int32_t centerSize = HashlifeNodeBase::getSize(renderCacheNodeLevel);
+        util::array<HashlifeNodeBase *, nodeArraySize * nodeArraySize * nodeArraySize> nodes;
+        HashlifeNodeBase *&getNode(std::size_t x, std::size_t y, std::size_t z) noexcept
+        {
+            constexprAssert(x < nodeArraySize && y < nodeArraySize && z < nodeArraySize);
+            return nodes[nodeArraySize * (nodeArraySize * x + y) + z];
+        }
+        HashlifeNodeBase *const &getNode(std::size_t x, std::size_t y, std::size_t z) const noexcept
+        {
+            constexprAssert(x < nodeArraySize && y < nodeArraySize && z < nodeArraySize);
+            return nodes[nodeArraySize * (nodeArraySize * x + y) + z];
+        }
+        block::BlockStepGlobalState blockStepGlobalState;
+        explicit RenderCacheKey(const block::BlockStepGlobalState &blockStepGlobalState)
+            : nodes{}, blockStepGlobalState(blockStepGlobalState)
+        {
+        }
+        bool operator!=(const RenderCacheKey &rt) const noexcept
+        {
+            return !operator==(rt);
+        }
+        bool operator==(const RenderCacheKey &rt) const noexcept
+        {
+            return nodes == rt.nodes;
+        }
+        block::Block getBlock(util::Vector3I32 position) const noexcept
+        {
+            position += util::Vector3I32(centerSize);
+            constexprAssert(position.min() >= 0);
+            auto index = static_cast<util::Vector3U32>(position) / util::Vector3U32(centerSize);
+            position = static_cast<util::Vector3I32>(static_cast<util::Vector3U32>(position)
+                                                     % util::Vector3U32(centerSize));
+            static_assert(HashlifeNodeBase::levelSize == 2, "");
+            static_assert(centerSize >= 2, "");
+            position += util::Vector3I32(centerSize / 2);
+            return getNode(index.x, index.y, index.z)->get(position);
+        }
+    };
+    struct RenderCacheKeyHasher
+    {
+        std::size_t operator()(const RenderCacheKey &key) const
+        {
+            std::hash<HashlifeNodeBase *> hasher;
+            std::size_t retval = 0;
+            for(auto *node : key.nodes)
+            {
+                retval = retval * 1013 + hasher(node);
+            }
+            return retval;
+        }
+    };
+    struct RenderCacheEntry final
+    {
+        std::list<const RenderCacheKey *>::iterator renderCacheEntryListIterator;
+        std::shared_ptr<graphics::RenderBuffer> renderBuffer;
     };
 
 private:
@@ -98,31 +166,71 @@ public:
             dumpNode(rootNode, os);
         }
     };
+    class RenderCacheEntryReference final
+    {
+        friend class HashlifeWorld;
+        RenderCacheEntryReference(const RenderCacheEntryReference &) = delete;
+        RenderCacheEntryReference &operator=(const RenderCacheEntryReference &) = delete;
+
+    private:
+        RenderCacheKey key;
+        std::shared_ptr<const HashlifeWorld> world;
+
+    public:
+        RenderCacheEntryReference(const RenderCacheKey &key,
+                                  std::shared_ptr<const HashlifeWorld> world,
+                                  PrivateAccessTag)
+            : key(key), world(std::move(world))
+        {
+        }
+        ~RenderCacheEntryReference() = default;
+        static constexpr std::int32_t centerSize = RenderCacheKey::centerSize;
+        block::Block get(util::Vector3I32 position) const noexcept
+        {
+            return key.getBlock(position);
+        }
+    };
 
 private:
     HashlifeGarbageCollectedHashtable garbageCollectedHashtable;
     mutable std::list<std::weak_ptr<Snapshot>> snapshots;
+    std::list<std::weak_ptr<RenderCacheEntryReference>> renderCacheEntryReferences;
     HashlifeNodeBase *rootNode;
+    std::unordered_map<RenderCacheKey, RenderCacheEntry, RenderCacheKeyHasher> renderCache;
+    std::list<const RenderCacheKey *> renderCacheEntryList;
 
 public:
     explicit HashlifeWorld(PrivateAccessTag)
         : garbageCollectedHashtable(),
           snapshots(),
-          rootNode(garbageCollectedHashtable.getCanonicalEmptyNode(1))
+          renderCacheEntryReferences(),
+          rootNode(garbageCollectedHashtable.getCanonicalEmptyNode(1)),
+          renderCache(),
+          renderCacheEntryList()
     {
     }
-    void collectGarbage(std::size_t garbageCollectTargetNodeCount =
-                            HashlifeGarbageCollectedHashtable::defaultGarbageCollectTargetNodeCount)
+    static constexpr std::size_t defaultRenderCacheTargetEntryCount = 100000;
+    void collectGarbage(
+        std::size_t garbageCollectTargetNodeCount =
+            HashlifeGarbageCollectedHashtable::defaultGarbageCollectTargetNodeCount,
+        std::size_t renderCacheTargetEntryCount = defaultRenderCacheTargetEntryCount)
     {
-        std::vector<HashlifeNodeBase *> roots;
-        roots.reserve(1 + snapshots.size());
-        roots.push_back(rootNode);
+        while(renderCache.size() > renderCacheTargetEntryCount)
+        {
+            renderCache.erase(*renderCacheEntryList.back());
+            renderCacheEntryList.pop_back();
+        }
+        if(!garbageCollectedHashtable.needGarbageCollect(garbageCollectTargetNodeCount))
+            return;
+        std::vector<HashlifeNodeBase *> treeRoots;
+        treeRoots.reserve(1 + snapshots.size());
+        treeRoots.push_back(rootNode);
         for(auto iter = snapshots.begin(); iter != snapshots.end();)
         {
             auto snapshot = iter->lock();
             if(snapshot)
             {
-                roots.push_back(snapshot->rootNode);
+                treeRoots.push_back(snapshot->rootNode);
                 ++iter;
             }
             else
@@ -130,8 +238,39 @@ public:
                 iter = snapshots.erase(iter);
             }
         }
-        garbageCollectedHashtable.garbageCollect(
-            roots.data(), roots.size(), garbageCollectTargetNodeCount);
+        std::vector<HashlifeNodeBase *const *> rootArrays;
+        std::vector<std::size_t> rootArraySizes;
+        std::size_t expectedRootArraysSize =
+            1 + renderCache.size() + renderCacheEntryReferences.size();
+        rootArrays.reserve(expectedRootArraysSize);
+        rootArraySizes.reserve(expectedRootArraysSize);
+        rootArrays.push_back(treeRoots.data());
+        rootArraySizes.push_back(treeRoots.size());
+        for(auto *entry : renderCacheEntryList)
+        {
+            rootArrays.push_back(entry->nodes.data());
+            rootArraySizes.push_back(entry->nodes.size());
+        }
+        for(auto iter = renderCacheEntryReferences.begin();
+            iter != renderCacheEntryReferences.end();)
+        {
+            auto renderCacheEntryReference = iter->lock();
+            if(renderCacheEntryReference)
+            {
+                rootArrays.push_back(renderCacheEntryReference->key.nodes.data());
+                rootArraySizes.push_back(renderCacheEntryReference->key.nodes.size());
+                ++iter;
+            }
+            else
+            {
+                iter = renderCacheEntryReferences.erase(iter);
+            }
+        }
+        constexprAssert(rootArrays.size() == rootArraySizes.size());
+        garbageCollectedHashtable.garbageCollect(rootArrays.data(),
+                                                 rootArraySizes.data(),
+                                                 rootArrays.size(),
+                                                 garbageCollectTargetNodeCount);
     }
     std::shared_ptr<const Snapshot> makeSnapshot() const
     {
@@ -458,9 +597,10 @@ public:
     block::BlockStepExtraActions stepAndCollectGarbage(
         const block::BlockStepGlobalState &stepGlobalState,
         std::size_t garbageCollectTargetNodeCount =
-            HashlifeGarbageCollectedHashtable::defaultGarbageCollectTargetNodeCount)
+            HashlifeGarbageCollectedHashtable::defaultGarbageCollectTargetNodeCount,
+        std::size_t renderCacheTargetEntryCount = defaultRenderCacheTargetEntryCount)
     {
-        collectGarbage(garbageCollectTargetNodeCount);
+        collectGarbage(garbageCollectTargetNodeCount, renderCacheTargetEntryCount);
         return step(stepGlobalState);
     }
     block::BlockStepExtraActions step(const block::BlockStepGlobalState &stepGlobalState)
@@ -614,6 +754,70 @@ public:
     void dump(std::ostream &os) const
     {
         dumpNode(rootNode, os);
+    }
+
+private:
+    std::pair<const RenderCacheKey, RenderCacheEntry> &findOrMakeRenderCacheEntry(
+        const RenderCacheKey &key)
+    {
+        auto iter = renderCache.find(key);
+        if(iter == renderCache.end())
+        {
+            iter = std::get<0>(renderCache.emplace(key, RenderCacheEntry()));
+            renderCacheEntryList.push_front(&std::get<0>(*iter));
+            std::get<1>(*iter).renderCacheEntryListIterator = renderCacheEntryList.begin();
+        }
+        else
+        {
+            renderCacheEntryList.splice(renderCacheEntryList.begin(),
+                                        renderCacheEntryList,
+                                        std::get<1>(*iter).renderCacheEntryListIterator);
+        }
+        return *iter;
+    }
+
+public:
+    std::pair<std::shared_ptr<graphics::RenderBuffer>, std::shared_ptr<RenderCacheEntryReference>>
+        getRenderCacheEntry(util::Vector3I32 position,
+                            const block::BlockStepGlobalState &blockStepGlobalState)
+    {
+        constexprAssert(position % util::Vector3I32(RenderCacheKey::centerSize)
+                        == util::Vector3I32(0));
+        while(rootNode->getSize() < RenderCacheKey::centerSize)
+        {
+            expandRoot();
+        }
+        RenderCacheKey key(blockStepGlobalState);
+        for(std::size_t x = 0; x < RenderCacheKey::nodeArraySize; x++)
+        {
+            for(std::size_t y = 0; y < RenderCacheKey::nodeArraySize; y++)
+            {
+                for(std::size_t z = 0; z < RenderCacheKey::nodeArraySize; z++)
+                {
+                    auto nodePosition =
+                        position - util::Vector3I32(RenderCacheKey::centerSize)
+                        + util::Vector3I32(RenderCacheKey::centerSize) * util::Vector3I32(x, y, z);
+                    key.getNode(x, y, z) =
+                        rootNode->isPositionInside(nodePosition) ?
+                            rootNode->get(nodePosition, renderCacheNodeLevel) :
+                            garbageCollectedHashtable.getCanonicalEmptyNode(renderCacheNodeLevel);
+                }
+            }
+        }
+        auto &entry = findOrMakeRenderCacheEntry(key);
+        if(std::get<1>(entry).renderBuffer)
+            return {std::get<1>(entry).renderBuffer, nullptr};
+        auto renderCacheEntryReference = std::make_shared<RenderCacheEntryReference>(
+            key, shared_from_this(), PrivateAccessTag());
+        return {nullptr, std::move(renderCacheEntryReference)};
+    }
+    void setRenderCacheEntry(
+        const std::shared_ptr<RenderCacheEntryReference> &renderCacheEntryReference,
+        std::shared_ptr<graphics::RenderBuffer> renderBuffer)
+    {
+        constexprAssert(renderCacheEntryReference);
+        auto &entryValue = std::get<1>(findOrMakeRenderCacheEntry(renderCacheEntryReference->key));
+        entryValue.renderBuffer = std::move(renderBuffer);
     }
 };
 }

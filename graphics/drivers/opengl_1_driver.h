@@ -50,7 +50,6 @@ protected:
     virtual SDL_Window *createWindow(int x, int y, int w, int h, std::uint32_t flags) override;
     virtual void createGraphicsContext() override;
     virtual void destroyGraphicsContext() noexcept override;
-    virtual void setGraphicsContextRecreationNeeded() noexcept override;
 
 public:
     virtual TextureId makeTexture(const std::shared_ptr<const Image> &image) override;
@@ -59,6 +58,7 @@ public:
     virtual std::shared_ptr<RenderBuffer> makeBuffer(
         const util::EnumArray<std::size_t, RenderLayer> &maximumSizes) override;
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() override;
+    virtual void setGraphicsContextRecreationNeeded() noexcept override;
     OpenGL1Driver() : SDL2Driver(), implementation(createImplementation())
     {
     }

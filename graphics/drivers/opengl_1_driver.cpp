@@ -25,7 +25,9 @@
 #include <list>
 #include <vector>
 #include <mutex>
+#include <sstream>
 #include "../graphics_util/texture_atlas.h"
+#include "../../logging/logging.h"
 
 namespace programmerjake
 {
@@ -360,6 +362,7 @@ struct OpenGL1Driver::Implementation final
     void layoutTextures(std::unique_lock<std::mutex> &lockedTextureLock)
     {
         textureLayoutVersion++;
+        textureLayoutNeeded = false;
         updatedTextures.clear();
         TextureSize newTextureSize =
             graphics_util::texture_atlas::TextureAtlas<OpenGLTexture,
@@ -369,8 +372,13 @@ struct OpenGL1Driver::Implementation final
                                                                                          .begin(),
                                                                                      textures
                                                                                          .end());
+        logging::log(logging::Level::Info, "OpenGL1Driver", "laid out textures");
         if(textureId == 0 || newTextureSize != currentTextureSize)
         {
+            std::ostringstream ss;
+            ss << "reallocating OpenGL texture: " << newTextureSize.width << "x"
+               << newTextureSize.height;
+            logging::log(logging::Level::Info, "OpenGL1Driver", ss.str());
             currentTextureSize = newTextureSize;
             invCurrentTextureWidth = 1.0f / currentTextureSize.width;
             invCurrentTextureHeight = 1.0f / currentTextureSize.height;
@@ -390,8 +398,13 @@ struct OpenGL1Driver::Implementation final
                          GL_UNSIGNED_BYTE,
                          nullptr);
         }
+        std::size_t textureIndex = 0;
         for(auto &texture : textures)
         {
+            std::ostringstream ss;
+            ss << "texture #" << textureIndex++ << ": " << texture.size.width << "x"
+               << texture.size.height << " at " << texture.x << ", " << texture.y;
+            logging::log(logging::Level::Debug, "OpenGL1Driver", ss.str());
             texture.upToDate = true;
             glTexSubImage2D(GL_TEXTURE_2D,
                             0,
@@ -463,6 +476,7 @@ struct OpenGL1Driver::Implementation final
     FN(glMatrixMode, MATRIXMODE)           \
     FN(glLoadMatrixf, LOADMATRIXF)         \
     FN(glViewport, VIEWPORT)               \
+    FN(glDepthMask, DEPTHMASK)             \
     FN(glEnableClientState, ENABLECLIENTSTATE)
 
 #define FN(a, b)                           \
@@ -539,14 +553,17 @@ struct OpenGL1Driver::Implementation final
             case RenderLayer::Opaque:
                 glDisable(GL_ALPHA_TEST);
                 glDisable(GL_BLEND);
+                glDepthMask(GL_TRUE);
                 break;
             case RenderLayer::OpaqueWithHoles:
                 glEnable(GL_ALPHA_TEST);
                 glEnable(GL_BLEND);
+                glDepthMask(GL_TRUE);
                 break;
             case RenderLayer::Translucent:
                 glEnable(GL_ALPHA_TEST);
                 glEnable(GL_BLEND);
+                glDepthMask(GL_FALSE);
                 break;
             }
             for(auto *command : renderCommands)
@@ -603,6 +620,7 @@ struct OpenGL1Driver::Implementation final
                              command.backgroundColor.green,
                              command.backgroundColor.blue,
                              command.backgroundColor.opacity);
+                glDepthMask(GL_TRUE);
                 glClear((command.colorFlag ? GL_COLOR_BUFFER_BIT : 0)
                         | (command.colorFlag ? GL_DEPTH_BUFFER_BIT : 0));
                 break;
@@ -658,6 +676,7 @@ void OpenGL1Driver::createGraphicsContext()
         throw std::runtime_error(std::string("SDL_GL_CreateContext failed: ") + SDL_GetError());
     implementation->loadFunctions();
     implementation->setupContext();
+    logging::log(logging::Level::Info, "OpenGL1Driver", "created graphics context");
 }
 
 void OpenGL1Driver::destroyGraphicsContext() noexcept
@@ -666,6 +685,10 @@ void OpenGL1Driver::destroyGraphicsContext() noexcept
     SDL_GL_DeleteContext(implementation->openGLContext);
     implementation->openGLContext = nullptr;
     implementation->textureId = 0;
+    std::unique_lock<std::mutex> lockedTextureLock(implementation->textureLock);
+    implementation->textureLayoutNeeded = true;
+    lockedTextureLock.unlock();
+    logging::log(logging::Level::Info, "OpenGL1Driver", "destroyed graphics context");
 }
 
 void OpenGL1Driver::setGraphicsContextRecreationNeeded() noexcept

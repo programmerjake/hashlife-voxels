@@ -212,13 +212,18 @@ private:
 public:
     static constexpr std::size_t defaultGarbageCollectTargetNodeCount =
         1UL << 20; // 1M nodes or about 64MiB
+    bool needGarbageCollect(
+        std::size_t garbageCollectTargetNodeCount = defaultGarbageCollectTargetNodeCount) noexcept
+    {
+        return garbageCollectTargetNodeCount < nodeCount;
+    }
     void garbageCollect(
         HashlifeNodeBase *const *const *rootPointerArrays,
         const std::size_t *rootPointerArraySizes,
         std::size_t rootPointerArrayCount,
         std::size_t garbageCollectTargetNodeCount = defaultGarbageCollectTargetNodeCount) noexcept
     {
-        if(garbageCollectTargetNodeCount >= nodeCount)
+        if(!needGarbageCollect(garbageCollectTargetNodeCount))
             return;
         std::size_t numberOfNodesLeftToCollect = nodeCount - garbageCollectTargetNodeCount;
         freeNodesFromCollectPendingNodeQueue(numberOfNodesLeftToCollect);

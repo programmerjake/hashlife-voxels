@@ -45,6 +45,22 @@ int main()
     };
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
+    auto theWorld = world::HashlifeWorld::make();
+    for(std::int32_t x = -4; x < 4; x++)
+    {
+        for(std::int32_t y = -4; y < 4; y++)
+        {
+            for(std::int32_t z = -4; z < 4; z++)
+            {
+                theWorld->setBlock(block::Block(block::builtin::Air::get()->blockKind),
+                                   util::Vector3I32(x, y, z));
+            }
+        }
+    }
+    theWorld->setBlock(block::Block(block::builtin::Bedrock::get()->blockKind),
+                       util::Vector3I32(0));
+    block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
+        lighting::Lighting::maxLight, world::Dimension::overworld()));
     try
     {
         graphics::MemoryRenderBuffer memoryRenderBuffer;
@@ -65,20 +81,44 @@ int main()
         blockStepInput[util::Vector3I32(0, -1, 0)] =
             block::Block(block::builtin::Air::get()->blockKind,
                          lighting::Lighting(0, lighting::Lighting::maxLight - 1, 0));
+        util::EnumArray<lighting::BlockLighting, block::BlockFace> blockLightingForFaces;
+        util::EnumArray<const lighting::BlockLighting *, block::BlockFace>
+            blockLightingPointersForFaces;
+        for(auto blockFace : util::EnumTraits<block::BlockFace>::values)
+        {
+            blockLightingPointersForFaces[blockFace] = &blockLightingForFaces[blockFace];
+            blockLightingForFaces[blockFace] = block::BlockDescriptor::makeBlockLighting(
+                blockStepInput, blockStepGlobalState, getDirection(blockFace));
+        }
         block::builtin::Bedrock::get()->render(
             memoryRenderBuffer,
             blockStepInput,
-            block::BlockStepGlobalState(lighting::Lighting::GlobalProperties(
-                lighting::Lighting::maxLight, world::Dimension::overworld())));
+            blockStepGlobalState,
+            blockLightingPointersForFaces,
+            block::BlockDescriptor::makeBlockLighting(
+                blockStepInput, blockStepGlobalState, util::Vector3I32(0)));
         auto gpuRenderBuffer =
             graphics::RenderBuffer::makeGPUBuffer(memoryRenderBuffer.getTriangleCounts());
         gpuRenderBuffer->appendBuffer(memoryRenderBuffer, graphics::Transform::translate(-0.5f));
         gpuRenderBuffer->finish();
+        std::size_t frameCount = 0;
+        auto lastFPSReportTime = std::chrono::steady_clock::now();
         graphics::Driver::get().run(
             [&]() -> std::shared_ptr<graphics::Driver::CommandBuffer>
             {
+                theWorld->stepAndCollectGarbage(blockStepGlobalState);
+                auto now = std::chrono::steady_clock::now();
+                frameCount++;
+                if(now - lastFPSReportTime >= std::chrono::seconds(5))
+                {
+                    lastFPSReportTime += std::chrono::seconds(5);
+                    std::ostringstream ss;
+                    ss << "FPS: " << static_cast<float>(frameCount) / 5;
+                    frameCount = 0;
+                    logging::log(logging::Level::Info, "main", ss.str());
+                }
                 auto t = std::chrono::duration_cast<std::chrono::duration<double>>(
-                             std::chrono::steady_clock::now().time_since_epoch()).count();
+                             now.time_since_epoch()).count();
                 auto outputSize = graphics::Driver::get().getOutputSize();
                 float scaleX = std::get<0>(outputSize);
                 float scaleY = std::get<1>(outputSize);
@@ -107,6 +147,9 @@ int main()
                 {
                     if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Escape)
                         throw QuitException();
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Space)
+                        dynamic_cast<graphics::drivers::SDL2Driver &>(graphics::Driver::get())
+                            .setGraphicsContextRecreationNeeded();
                 }
             });
     }

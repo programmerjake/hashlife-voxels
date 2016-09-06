@@ -52,7 +52,6 @@ protected:
     virtual SDL_Window *createWindow(int x, int y, int w, int h, std::uint32_t flags) = 0;
     virtual void createGraphicsContext() = 0;
     virtual void destroyGraphicsContext() noexcept = 0;
-    virtual void setGraphicsContextRecreationNeeded() noexcept = 0;
     SDL_Window *getWindow() const noexcept;
     void runOnMainThread(void (*fn)(void *arg), void *arg);
     template <typename Fn>
@@ -85,6 +84,7 @@ public:
     }
     static void initSDL() noexcept;
     virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept override;
+    virtual void setGraphicsContextRecreationNeeded() noexcept = 0;
 };
 }
 }

@@ -40,9 +40,12 @@ Bedrock::Bedrock()
 {
 }
 
-void Bedrock::render(graphics::MemoryRenderBuffer &renderBuffer,
-                     const BlockStepInput &stepInput,
-                     const block::BlockStepGlobalState &stepGlobalState) const
+void Bedrock::render(
+    graphics::MemoryRenderBuffer &renderBuffer,
+    const BlockStepInput &stepInput,
+    const block::BlockStepGlobalState &stepGlobalState,
+    const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
+    const lighting::BlockLighting &blockLightingForCenter) const
 {
     graphics::MemoryRenderBuffer localRenderBuffer;
     for(BlockFace blockFace : util::EnumTraits<BlockFace>::values)
@@ -51,7 +54,7 @@ void Bedrock::render(graphics::MemoryRenderBuffer &renderBuffer,
         {
             auto offset = getDirection(blockFace);
             auto offsetF = static_cast<util::Vector3F>(offset);
-            auto blockLighting = makeBlockLighting(stepInput, stepGlobalState, offset);
+            auto *blockLighting = blockLightingForFaces[blockFace];
             graphics::shape::renderCubeFace(
                 localRenderBuffer,
                 graphics::RenderLayer::Opaque,
@@ -66,7 +69,7 @@ void Bedrock::render(graphics::MemoryRenderBuffer &renderBuffer,
                 [&](util::Vector3F position, graphics::ColorF color, util::Vector3F normal)
                     -> graphics::ColorF
                 {
-                    return blockLighting.lightVertex(position - offsetF, color, normal);
+                    return blockLighting->lightVertex(position - offsetF, color, normal);
                 });
             renderBuffer.appendBuffer(localRenderBuffer);
             localRenderBuffer.clear();

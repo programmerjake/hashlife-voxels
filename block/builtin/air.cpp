@@ -35,9 +35,12 @@ Air::Air()
 {
 }
 
-void Air::render(graphics::MemoryRenderBuffer &renderBuffer,
-                 const BlockStepInput &stepInput,
-                 const block::BlockStepGlobalState &stepGlobalState) const
+void Air::render(
+    graphics::MemoryRenderBuffer &renderBuffer,
+    const BlockStepInput &stepInput,
+    const block::BlockStepGlobalState &stepGlobalState,
+    const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
+    const lighting::BlockLighting &blockLightingForCenter) const
 {
 }
 }
