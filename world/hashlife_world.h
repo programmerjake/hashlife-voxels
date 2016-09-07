@@ -27,11 +27,13 @@
 #include "../block/block.h"
 #include "../block/block_descriptor.h"
 #include "../util/constexpr_array.h"
+#include "../util/vector.h"
 #include <memory>
 #include <list>
 #include <iosfwd>
 #include <unordered_map>
 #include <utility>
+#include <type_traits>
 
 namespace programmerjake
 {
@@ -40,6 +42,8 @@ namespace voxels
 namespace graphics
 {
 class RenderBuffer;
+struct CommandBuffer;
+struct Transform;
 }
 namespace world
 {
@@ -62,7 +66,9 @@ private:
         friend class HashlifeWorld;
         static constexpr std::size_t nodeArraySize = 3;
         static constexpr std::int32_t centerSize = HashlifeNodeBase::getSize(renderCacheNodeLevel);
-        util::array<HashlifeNodeBase *, nodeArraySize * nodeArraySize * nodeArraySize> nodes;
+        static constexpr int logBase2OfCenterSize =
+            HashlifeNodeBase::getLogBase2OfSize(renderCacheNodeLevel);
+        util::Array<HashlifeNodeBase *, nodeArraySize * nodeArraySize * nodeArraySize> nodes;
         HashlifeNodeBase *&getNode(std::size_t x, std::size_t y, std::size_t z) noexcept
         {
             constexprAssert(x < nodeArraySize && y < nodeArraySize && z < nodeArraySize);
@@ -95,7 +101,7 @@ private:
                                                      % util::Vector3U32(centerSize));
             static_assert(HashlifeNodeBase::levelSize == 2, "");
             static_assert(centerSize >= 2, "");
-            position += util::Vector3I32(centerSize / 2);
+            position -= util::Vector3I32(centerSize / 2);
             return getNode(index.x, index.y, index.z)->get(position);
         }
     };
@@ -185,9 +191,26 @@ public:
         }
         ~RenderCacheEntryReference() = default;
         static constexpr std::int32_t centerSize = RenderCacheKey::centerSize;
+        static constexpr int logBase2OfCenterSize = RenderCacheKey::logBase2OfCenterSize;
         block::Block get(util::Vector3I32 position) const noexcept
         {
             return key.getBlock(position);
+        }
+        const block::BlockStepGlobalState &getBlockStepGlobalState() const noexcept
+        {
+            return key.blockStepGlobalState;
+        }
+        std::size_t hash() const
+        {
+            return RenderCacheKeyHasher()(key);
+        }
+        bool operator==(const RenderCacheEntryReference &rt) const
+        {
+            return key == rt.key;
+        }
+        bool operator!=(const RenderCacheEntryReference &rt) const
+        {
+            return key != rt.key;
         }
     };
 
@@ -365,7 +388,7 @@ private:
         {
             static_assert(HashlifeNodeBase::levelSize == 2, "");
             static constexpr std::int32_t intermediateSize = HashlifeNodeBase::levelSize * 2 - 1;
-            util::array<util::array<util::array<HashlifeNodeBase *, intermediateSize>,
+            util::Array<util::Array<util::Array<HashlifeNodeBase *, intermediateSize>,
                                     intermediateSize>,
                         intermediateSize> intermediate;
             for(util::Vector3I32 chunkPos(0); chunkPos.x < intermediateSize; chunkPos.x++)
@@ -730,7 +753,7 @@ public:
     }
     void setBlock(block::Block block, util::Vector3I32 position)
     {
-        util::array<util::array<util::array<block::Block, 1>, 1>, 1> blocks;
+        util::Array<util::Array<util::Array<block::Block, 1>, 1>, 1> blocks;
         blocks[0][0][0] = block;
         setBlocks(blocks, position, util::Vector3I32(0), util::Vector3I32(1));
     }
@@ -818,6 +841,43 @@ public:
         constexprAssert(renderCacheEntryReference);
         auto &entryValue = std::get<1>(findOrMakeRenderCacheEntry(renderCacheEntryReference->key));
         entryValue.renderBuffer = std::move(renderBuffer);
+    }
+    static std::shared_ptr<graphics::RenderBuffer> renderRenderCacheEntry(
+        const std::shared_ptr<RenderCacheEntryReference> &renderCacheEntryReference);
+    void renderView(std::shared_ptr<graphics::RenderBuffer>(*handleUnrenderedChunk)(
+                        void *arg,
+                        std::shared_ptr<RenderCacheEntryReference> renderCacheEntryReference),
+                    void *handleUnrenderedChunkArg,
+                    util::Vector3F viewLocation,
+                    float viewDistance,
+                    const std::shared_ptr<graphics::CommandBuffer> &commandBuffer,
+                    const graphics::Transform &viewTransform,
+                    const graphics::Transform &projectionTransform,
+                    const block::BlockStepGlobalState &blockStepGlobalState);
+    template <typename HandleUnrenderedChunk>
+    void renderView(HandleUnrenderedChunk &&handleUnrenderedChunk,
+                    util::Vector3F viewLocation,
+                    float viewDistance,
+                    const std::shared_ptr<graphics::CommandBuffer> &commandBuffer,
+                    const graphics::Transform &viewTransform,
+                    const graphics::Transform &projectionTransform,
+                    const block::BlockStepGlobalState &blockStepGlobalState)
+    {
+        renderView(
+            [](void *arg, std::shared_ptr<RenderCacheEntryReference> renderCacheEntryReference)
+                -> std::shared_ptr<graphics::RenderBuffer>
+            {
+                return std::forward<HandleUnrenderedChunk>(
+                    *static_cast<typename std::decay<HandleUnrenderedChunk>::type *>(arg))(
+                    std::move(renderCacheEntryReference));
+            },
+            const_cast<char *>(&reinterpret_cast<const volatile char &>(handleUnrenderedChunk)),
+            viewLocation,
+            viewDistance,
+            commandBuffer,
+            viewTransform,
+            projectionTransform,
+            blockStepGlobalState);
     }
 };
 }

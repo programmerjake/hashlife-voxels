@@ -33,12 +33,12 @@ namespace util
 {
 struct Matrix4x4F final
 {
-    array<array<float, 4>, 4> elements;
-    array<float, 4> &operator[](std::size_t index) noexcept
+    Array<Array<float, 4>, 4> elements;
+    Array<float, 4> &operator[](std::size_t index) noexcept
     {
         return elements[index];
     }
-    constexpr const array<float, 4> &operator[](std::size_t index) const noexcept
+    constexpr const Array<float, 4> &operator[](std::size_t index) const noexcept
     {
         return elements[index];
     }

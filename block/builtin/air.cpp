@@ -40,7 +40,8 @@ void Air::render(
     const BlockStepInput &stepInput,
     const block::BlockStepGlobalState &stepGlobalState,
     const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
-    const lighting::BlockLighting &blockLightingForCenter) const
+    const lighting::BlockLighting &blockLightingForCenter,
+    const graphics::Transform &transform) const
 {
 }
 }

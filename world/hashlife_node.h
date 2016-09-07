@@ -136,6 +136,11 @@ public:
         static_assert(levelSize == 2, "");
         return 2UL << level;
     }
+    static constexpr int getLogBase2OfSize(LevelType level)
+    {
+        static_assert(levelSize == 2, "");
+        return 1 + level;
+    }
     constexpr std::uint32_t getSize() const
     {
         return getSize(level);
@@ -234,7 +239,7 @@ public:
         }
         HashlifeNodeBase *node;
         block::BlockStepGlobalState globalState;
-        typedef util::array<util::array<util::array<block::BlockStepExtraActions, levelSize>,
+        typedef util::Array<util::Array<util::Array<block::BlockStepExtraActions, levelSize>,
                                         levelSize>,
                             levelSize> ActionsArray;
         ActionsArray actions;
@@ -252,7 +257,7 @@ public:
         {
         }
     };
-    typedef util::array<util::array<util::array<HashlifeNodeBase *, levelSize>, levelSize>,
+    typedef util::Array<util::Array<util::Array<HashlifeNodeBase *, levelSize>, levelSize>,
                         levelSize> ChildNodesArray;
 
 private:
@@ -366,7 +371,7 @@ public:
 class HashlifeLeafNode final : public HashlifeNodeBase
 {
 public:
-    typedef util::array<util::array<util::array<block::Block, levelSize>, levelSize>, levelSize>
+    typedef util::Array<util::Array<util::Array<block::Block, levelSize>, levelSize>, levelSize>
         BlocksArray;
 
 private:

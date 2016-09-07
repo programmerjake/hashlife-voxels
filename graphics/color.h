@@ -40,7 +40,7 @@ template <typename = void>
 class SRGBHelper final
 {
 private:
-    static constexpr util::array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
+    static constexpr util::Array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
         linearToSRGBLookupArray = {{
             0.00000000000000000000f,
             0.04984008984501272225f,
@@ -299,7 +299,7 @@ private:
             0.99827416796860204319f,
             1.00000000000000000000f,
         }};
-    static constexpr util::array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
+    static constexpr util::Array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
         srgbToLinearLookupArray = {{
             0.00000000000000000000f,
             0.00030352698354883749f,
@@ -598,11 +598,11 @@ public:
 };
 
 template <typename T>
-constexpr util::array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
+constexpr util::Array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
     SRGBHelper<T>::srgbToLinearLookupArray;
 
 template <typename T>
-constexpr util::array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
+constexpr util::Array<float, std::numeric_limits<std::uint8_t>::max() + 1U>
     SRGBHelper<T>::linearToSRGBLookupArray;
 
 constexpr float srgbToLinear(float v) noexcept

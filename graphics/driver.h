@@ -41,22 +41,21 @@ namespace voxels
 {
 namespace graphics
 {
+struct CommandBuffer
+{
+    virtual ~CommandBuffer() = default;
+    virtual void appendClearCommand(bool colorFlag,
+                                    bool depthFlag,
+                                    const ColorF &backgroundColor) = 0;
+    virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
+                                     const Transform &modelTransform,
+                                     const Transform &viewTransform,
+                                     const Transform &projectionTransform) = 0;
+    virtual void appendPresentCommandAndFinish() = 0;
+};
+
 class Driver
 {
-public:
-    struct CommandBuffer
-    {
-        virtual ~CommandBuffer() = default;
-        virtual void appendClearCommand(bool colorFlag,
-                                        bool depthFlag,
-                                        const ColorF &backgroundColor) = 0;
-        virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
-                                         const Transform &modelTransform,
-                                         const Transform &viewTransform,
-                                         const Transform &projectionTransform) = 0;
-        virtual void appendPresentCommandAndFinish() = 0;
-    };
-
 private:
     static Driver &get(Driver *driver);
 

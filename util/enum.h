@@ -86,14 +86,14 @@ public:
 
 private:
     template <underlying_type... values>
-    static constexpr array<EnumType, EnumTraitsImplementation<EnumType>::size> makeValues(
+    static constexpr Array<EnumType, EnumTraitsImplementation<EnumType>::size> makeValues(
         IntegerSequence<underlying_type, values...>)
     {
-        return array<EnumType, EnumTraitsImplementation<EnumType>::size>{static_cast<EnumType>(
+        return Array<EnumType, EnumTraitsImplementation<EnumType>::size>{static_cast<EnumType>(
             values + static_cast<underlying_type>(EnumTraitsImplementation<EnumType>::min))...};
     }
-    typedef array<EnumType, EnumTraitsImplementation<EnumType>::size> ValuesImplementationType;
-    static constexpr array<EnumType, EnumTraitsImplementation<EnumType>::size>
+    typedef Array<EnumType, EnumTraitsImplementation<EnumType>::size> ValuesImplementationType;
+    static constexpr Array<EnumType, EnumTraitsImplementation<EnumType>::size>
         valuesImplementation = makeValues(
             MakeIntegerSequence<underlying_type, EnumTraitsImplementation<EnumType>::size>());
 
@@ -116,7 +116,7 @@ public:
 };
 
 template <typename EnumType>
-constexpr array<EnumType, EnumTraitsImplementation<EnumType>::size>
+constexpr Array<EnumType, EnumTraitsImplementation<EnumType>::size>
     EnumTraits<EnumType>::valuesImplementation;
 
 template <typename EnumType>

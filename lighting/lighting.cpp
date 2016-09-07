@@ -27,7 +27,7 @@ namespace voxels
 namespace lighting
 {
 float BlockLighting::evalVertex(
-    const util::array<util::array<util::array<float, 3>, 3>, 3> &blockValues,
+    const util::Array<util::Array<util::Array<float, 3>, 3>, 3> &blockValues,
     util::Vector3I32 offset) noexcept
 {
     float retval = 0;
@@ -48,10 +48,10 @@ float BlockLighting::evalVertex(
 }
 
 BlockLighting::BlockLighting(
-    util::array<util::array<util::array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
+    util::Array<util::Array<util::Array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
     const Lighting::GlobalProperties &globalProperties) noexcept : lightValues()
 {
-    util::array<util::array<util::array<bool, 3>, 3>, 3> isOpaque, setOpaque;
+    util::Array<util::Array<util::Array<bool, 3>, 3>, 3> isOpaque, setOpaque;
     for(int x = 0; x < 3; x++)
     {
         for(int y = 0; y < 3; y++)
@@ -186,7 +186,7 @@ BlockLighting::BlockLighting(
             }
         }
     }
-    util::array<util::array<util::array<float, 3>, 3>, 3> blockValues;
+    util::Array<util::Array<util::Array<float, 3>, 3>, 3> blockValues;
     for(size_t x = 0; x < blockValues.size(); x++)
     {
         for(size_t y = 0; y < blockValues[x].size(); y++)

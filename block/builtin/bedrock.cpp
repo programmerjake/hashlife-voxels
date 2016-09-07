@@ -45,7 +45,8 @@ void Bedrock::render(
     const BlockStepInput &stepInput,
     const block::BlockStepGlobalState &stepGlobalState,
     const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
-    const lighting::BlockLighting &blockLightingForCenter) const
+    const lighting::BlockLighting &blockLightingForCenter,
+    const graphics::Transform &transform) const
 {
     graphics::MemoryRenderBuffer localRenderBuffer;
     for(BlockFace blockFace : util::EnumTraits<BlockFace>::values)
@@ -71,7 +72,7 @@ void Bedrock::render(
                 {
                     return blockLighting->lightVertex(position - offsetF, color, normal);
                 });
-            renderBuffer.appendBuffer(localRenderBuffer);
+            renderBuffer.appendBuffer(localRenderBuffer, transform);
             localRenderBuffer.clear();
         }
     }

@@ -726,7 +726,7 @@ std::shared_ptr<RenderBuffer> OpenGL1Driver::makeBuffer(
     return std::make_shared<Implementation::OpenGLRenderBuffer>(maximumSizes, *this);
 }
 
-std::shared_ptr<Driver::CommandBuffer> OpenGL1Driver::makeCommandBuffer()
+std::shared_ptr<CommandBuffer> OpenGL1Driver::makeCommandBuffer()
 {
     return std::make_shared<Implementation::OpenGLCommandBuffer>();
 }

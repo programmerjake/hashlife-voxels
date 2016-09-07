@@ -63,48 +63,10 @@ int main()
         lighting::Lighting::maxLight, world::Dimension::overworld()));
     try
     {
-        graphics::MemoryRenderBuffer memoryRenderBuffer;
-        block::BlockStepInput blockStepInput;
-        for(auto &i : blockStepInput.blocks)
-        {
-            for(auto &j : i)
-            {
-                for(auto &b : j)
-                {
-                    b = block::Block(block::builtin::Air::get()->blockKind,
-                                     lighting::Lighting::makeSkyLighting());
-                }
-            }
-        }
-        blockStepInput[util::Vector3I32(0)] =
-            block::Block(block::builtin::Bedrock::get()->blockKind, lighting::Lighting());
-        blockStepInput[util::Vector3I32(0, -1, 0)] =
-            block::Block(block::builtin::Air::get()->blockKind,
-                         lighting::Lighting(0, lighting::Lighting::maxLight - 1, 0));
-        util::EnumArray<lighting::BlockLighting, block::BlockFace> blockLightingForFaces;
-        util::EnumArray<const lighting::BlockLighting *, block::BlockFace>
-            blockLightingPointersForFaces;
-        for(auto blockFace : util::EnumTraits<block::BlockFace>::values)
-        {
-            blockLightingPointersForFaces[blockFace] = &blockLightingForFaces[blockFace];
-            blockLightingForFaces[blockFace] = block::BlockDescriptor::makeBlockLighting(
-                blockStepInput, blockStepGlobalState, getDirection(blockFace));
-        }
-        block::builtin::Bedrock::get()->render(
-            memoryRenderBuffer,
-            blockStepInput,
-            blockStepGlobalState,
-            blockLightingPointersForFaces,
-            block::BlockDescriptor::makeBlockLighting(
-                blockStepInput, blockStepGlobalState, util::Vector3I32(0)));
-        auto gpuRenderBuffer =
-            graphics::RenderBuffer::makeGPUBuffer(memoryRenderBuffer.getTriangleCounts());
-        gpuRenderBuffer->appendBuffer(memoryRenderBuffer, graphics::Transform::translate(-0.5f));
-        gpuRenderBuffer->finish();
         std::size_t frameCount = 0;
         auto lastFPSReportTime = std::chrono::steady_clock::now();
         graphics::Driver::get().run(
-            [&]() -> std::shared_ptr<graphics::Driver::CommandBuffer>
+            [&]() -> std::shared_ptr<graphics::CommandBuffer>
             {
                 theWorld->stepAndCollectGarbage(blockStepGlobalState);
                 auto now = std::chrono::steady_clock::now();
@@ -130,12 +92,20 @@ int main()
                     scaleY = 1;
                 auto commandBuffer = graphics::Driver::get().makeCommandBuffer();
                 commandBuffer->appendClearCommand(true, true, graphics::rgbF(0, 0, 0));
-                commandBuffer->appendRenderCommand(
-                    gpuRenderBuffer,
-                    graphics::Transform::rotateY(t).concat(graphics::Transform::rotateX(t / 4)),
-                    graphics::Transform::translate(0, 0, -2),
+                theWorld->renderView(
+                    [&](const std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference> &
+                            renderCacheEntryReference)
+                    {
+                        return theWorld->renderRenderCacheEntry(renderCacheEntryReference);
+                    },
+                    util::Vector3F(0),
+                    16,
+                    commandBuffer,
+                    graphics::Transform::rotateY(t)
+                        .concat(graphics::Transform::translate(0.5, 0.5, -2.5)),
                     graphics::Transform::frustum(
-                        -0.1 * scaleX, 0.1 * scaleX, -0.1 * scaleY, 0.1 * scaleY, 0.1, 10));
+                        -0.1 * scaleX, 0.1 * scaleX, -0.1 * scaleY, 0.1 * scaleY, 0.1, 10),
+                    blockStepGlobalState);
                 commandBuffer->appendPresentCommandAndFinish();
                 return commandBuffer;
             },

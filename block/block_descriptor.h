@@ -94,7 +94,7 @@ namespace block
 {
 struct BlockStepInput final
 {
-    util::array<util::array<util::array<Block, 3>, 3>, 3> blocks;
+    util::Array<util::Array<util::Array<Block, 3>, 3>, 3> blocks;
     Block &operator[](util::Vector3I32 index) noexcept
     {
         return blocks[index.x + 1][index.y + 1][index.z + 1];
@@ -383,6 +383,7 @@ struct BlockStepFullOutput final
 namespace graphics
 {
 class MemoryRenderBuffer;
+struct Transform;
 }
 
 namespace block
@@ -419,7 +420,8 @@ public:
         const BlockStepInput &stepInput,
         const BlockStepGlobalState &stepGlobalState,
         const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
-        const lighting::BlockLighting &blockLightingForCenter) const = 0;
+        const lighting::BlockLighting &blockLightingForCenter,
+        const graphics::Transform &transform) const = 0;
     virtual BlockStepPartOutput stepFromNXNYNZ(const BlockStepInput &stepInput,
                                                const BlockStepGlobalState &stepGlobalState) const
     {
@@ -882,7 +884,7 @@ public:
                                                      util::Vector3I32 offset) noexcept
     {
         util::
-            array<util::array<util::array<std::pair<lighting::LightProperties, lighting::Lighting>,
+            Array<util::Array<util::Array<std::pair<lighting::LightProperties, lighting::Lighting>,
                                           3>,
                               3>,
                   3> blocks;

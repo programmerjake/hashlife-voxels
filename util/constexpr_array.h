@@ -36,7 +36,7 @@ namespace voxels
 namespace util
 {
 template <typename T, std::size_t N>
-struct array;
+struct Array;
 
 template <typename T>
 class ConstArrayIterator;
@@ -45,7 +45,7 @@ template <typename T>
 class ArrayIterator
 {
     template <typename, std::size_t>
-    friend struct array;
+    friend struct Array;
     template <typename>
     friend class ConstArrayIterator;
 
@@ -156,7 +156,7 @@ template <typename T>
 class ConstArrayIterator
 {
     template <typename, std::size_t>
-    friend struct array;
+    friend struct Array;
 
 public:
     typedef std::ptrdiff_t difference_type;
@@ -310,7 +310,7 @@ struct ArrayImplementation<T, 0>
 };
 
 template <typename T, std::size_t N>
-struct array
+struct Array
 {
     typename ArrayImplementation<T, N>::ArrayType values;
     typedef T value_type;
@@ -435,7 +435,7 @@ struct array
             element = value;
         }
     }
-    void swap(array &other) noexcept(ArrayImplementation<T, N>::isSwapNoThrow())
+    void swap(Array &other) noexcept(ArrayImplementation<T, N>::isSwapNoThrow())
     {
         for(std::size_t i = 0; i < N; i++)
         {
@@ -445,13 +445,13 @@ struct array
     }
 
 private:
-    constexpr bool equalsHelper(const array &rt, std::size_t index = 0) const
+    constexpr bool equalsHelper(const Array &rt, std::size_t index = 0) const
         noexcept(noexcept(std::declval<const T &>() == std::declval<const T &>() ? 0 : 0))
     {
         return index < N ? (operator[](index) == rt[index] ? equalsHelper(rt, index + 1) : false) :
                            true;
     }
-    constexpr bool lessHelper(const array &rt, std::size_t index = 0) const
+    constexpr bool lessHelper(const Array &rt, std::size_t index = 0) const
         noexcept(noexcept(std::declval<const T &>() < std::declval<const T &>() ? 0 : 0))
     {
         return index < N ?
@@ -462,39 +462,39 @@ private:
     }
 
 public:
-    friend constexpr bool operator==(const array &a,
-                                     const array &b) noexcept(noexcept(a.equalsHelper(b)))
+    friend constexpr bool operator==(const Array &a,
+                                     const Array &b) noexcept(noexcept(a.equalsHelper(b)))
     {
         return a.equalsHelper(b);
     }
-    friend constexpr bool operator!=(const array &a,
-                                     const array &b) noexcept(noexcept(a.equalsHelper(b)))
+    friend constexpr bool operator!=(const Array &a,
+                                     const Array &b) noexcept(noexcept(a.equalsHelper(b)))
     {
         return !a.equalsHelper(b);
     }
-    friend constexpr bool operator<(const array &a,
-                                    const array &b) noexcept(noexcept(a.lessHelper(b)))
+    friend constexpr bool operator<(const Array &a,
+                                    const Array &b) noexcept(noexcept(a.lessHelper(b)))
     {
         return a.lessHelper(b);
     }
-    friend constexpr bool operator>(const array &a,
-                                    const array &b) noexcept(noexcept(b.lessHelper(a)))
+    friend constexpr bool operator>(const Array &a,
+                                    const Array &b) noexcept(noexcept(b.lessHelper(a)))
     {
         return b.lessHelper(a);
     }
-    friend constexpr bool operator>=(const array &a,
-                                     const array &b) noexcept(noexcept(a.lessHelper(b)))
+    friend constexpr bool operator>=(const Array &a,
+                                     const Array &b) noexcept(noexcept(a.lessHelper(b)))
     {
         return !a.lessHelper(b);
     }
-    friend constexpr bool operator<=(const array &a,
-                                     const array &b) noexcept(noexcept(b.lessHelper(a)))
+    friend constexpr bool operator<=(const Array &a,
+                                     const Array &b) noexcept(noexcept(b.lessHelper(a)))
     {
         return !b.lessHelper(a);
     }
 };
 template <typename T, std::size_t N>
-void swap(array<T, N> &a, array<T, N> &b) noexcept(ArrayImplementation<T, N>::isSwapNoThrow())
+void swap(Array<T, N> &a, Array<T, N> &b) noexcept(ArrayImplementation<T, N>::isSwapNoThrow())
 {
     a.swap(b);
 }
