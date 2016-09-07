@@ -24,6 +24,7 @@
 #include "util/enum.h"
 #include "logging/logging.h"
 #include "util/constexpr_assert.h"
+#include "util/constexpr_array.h"
 #include "block/builtin/air.h"
 #include "graphics/drivers/null_driver.h"
 #include "graphics/drivers/opengl_1_driver.h"
@@ -31,6 +32,7 @@
 #include <sstream>
 #include <iostream>
 #include <chrono>
+#include <memory>
 
 namespace programmerjake
 {
@@ -46,7 +48,10 @@ int main()
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    const std::int32_t renderRange = 32;
+    constexpr std::int32_t renderRange = 32;
+    typedef util::Array<util::Array<util::Array<block::Block, renderRange * 2>, renderRange * 2>,
+                        renderRange * 2> BlocksArray;
+    std::unique_ptr<BlocksArray> blocksArray(new BlocksArray);
     for(std::int32_t x = -renderRange; x < renderRange; x++)
     {
         for(std::int32_t y = -renderRange; y < renderRange; y++)
@@ -56,10 +61,15 @@ int main()
                 auto block = block::Block(block::builtin::Air::get()->blockKind);
                 if(x * x + y * y + z * z < 15 * 15)
                     block = block::Block(block::builtin::Bedrock::get()->blockKind);
-                theWorld->setBlock(block, util::Vector3I32(x, y, z));
+                (*blocksArray)[x + renderRange][y + renderRange][z + renderRange] = block;
             }
         }
     }
+    theWorld->setBlocks(*blocksArray,
+                        util::Vector3I32(-renderRange),
+                        util::Vector3I32(0),
+                        util::Vector3I32(renderRange * 2));
+    blocksArray.reset();
     block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
         lighting::Lighting::maxLight, world::Dimension::overworld()));
     try
