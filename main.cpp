@@ -46,19 +46,20 @@ int main()
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    for(std::int32_t x = -4; x < 4; x++)
+    const std::int32_t renderRange = 32;
+    for(std::int32_t x = -renderRange; x < renderRange; x++)
     {
-        for(std::int32_t y = -4; y < 4; y++)
+        for(std::int32_t y = -renderRange; y < renderRange; y++)
         {
-            for(std::int32_t z = -4; z < 4; z++)
+            for(std::int32_t z = -renderRange; z < renderRange; z++)
             {
-                theWorld->setBlock(block::Block(block::builtin::Air::get()->blockKind),
-                                   util::Vector3I32(x, y, z));
+                auto block = block::Block(block::builtin::Air::get()->blockKind);
+                if(x * x + y * y + z * z < 15 * 15)
+                    block = block::Block(block::builtin::Bedrock::get()->blockKind);
+                theWorld->setBlock(block, util::Vector3I32(x, y, z));
             }
         }
     }
-    theWorld->setBlock(block::Block(block::builtin::Bedrock::get()->blockKind),
-                       util::Vector3I32(0));
     block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
         lighting::Lighting::maxLight, world::Dimension::overworld()));
     try
@@ -92,19 +93,26 @@ int main()
                     scaleY = 1;
                 auto commandBuffer = graphics::Driver::get().makeCommandBuffer();
                 commandBuffer->appendClearCommand(true, true, graphics::rgbF(0, 0, 0));
+                const float nearPlane = 0.01f;
+                const float farPlane = 50.0f;
                 theWorld->renderView(
                     [&](const std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference> &
                             renderCacheEntryReference)
                     {
                         return theWorld->renderRenderCacheEntry(renderCacheEntryReference);
                     },
-                    util::Vector3F(0),
-                    16,
+                    util::Vector3F(0.5),
+                    farPlane,
                     commandBuffer,
                     graphics::Transform::rotateY(t)
-                        .concat(graphics::Transform::translate(0.5, 0.5, -2.5)),
-                    graphics::Transform::frustum(
-                        -0.1 * scaleX, 0.1 * scaleX, -0.1 * scaleY, 0.1 * scaleY, 0.1, 10),
+                        .concat(graphics::Transform::rotateX(t / 4))
+                        .concat(graphics::Transform::translate(0, 0, 10 * std::sin(t / 3) - 20)),
+                    graphics::Transform::frustum(-nearPlane * scaleX,
+                                                 nearPlane * scaleX,
+                                                 -nearPlane * scaleY,
+                                                 nearPlane * scaleY,
+                                                 nearPlane,
+                                                 farPlane),
                     blockStepGlobalState);
                 commandBuffer->appendPresentCommandAndFinish();
                 return commandBuffer;

@@ -211,6 +211,8 @@ private:
                                          const Transform &projectionTransform) override
         {
             constexprAssert(!finished);
+            if(dynamic_cast<const EmptyRenderBuffer *>(renderBuffer.get()))
+                return;
             constexprAssert(dynamic_cast<const NullRenderBuffer *>(renderBuffer.get()));
             constexprAssert(
                 static_cast<const NullRenderBuffer *>(renderBuffer.get())->isFinished());

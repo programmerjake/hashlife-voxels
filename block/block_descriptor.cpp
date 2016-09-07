@@ -28,11 +28,13 @@ namespace block
 {
 BlockDescriptor::BlockDescriptor(std::string name,
                                  lighting::LightProperties lightProperties,
-                                 const BlockedFaces &blockedFaces) noexcept
+                                 const BlockedFaces &blockedFaces,
+                                 const BlockSummary &blockSummary) noexcept
     : lightProperties(lightProperties),
       blockKind(BlockKind::allocate()),
       name(std::move(name)),
-      blockedFaces(blockedFaces)
+      blockedFaces(blockedFaces),
+      blockSummary(blockSummary)
 {
     auto &descriptorsLookupTable = getDescriptorsLookupTable();
     if(descriptorsLookupTable.size() <= blockKind.value)

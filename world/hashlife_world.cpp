@@ -105,6 +105,8 @@ std::shared_ptr<graphics::RenderBuffer> HashlifeWorld::renderRenderCacheEntry(
     const std::shared_ptr<RenderCacheEntryReference> &renderCacheEntryReference)
 {
     constexprAssert(renderCacheEntryReference);
+    if(!renderCacheEntryReference->getBlockSummary().rendersAnything())
+        return graphics::EmptyRenderBuffer::get();
     constexpr std::int32_t blockLightingArraySize =
         RenderCacheEntryReference::centerSize + 2; // one extra block on each side
     struct State final

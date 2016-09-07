@@ -35,7 +35,8 @@ namespace builtin
 Bedrock::Bedrock()
     : BlockDescriptor("builtin.bedrock",
                       lighting::LightProperties::opaque(),
-                      BlockedFaces{{true, true, true, true, true, true}}),
+                      BlockedFaces{{true, true, true, true, true, true}},
+                      BlockSummary(false, true)),
       bedrockTexture(resource::readResourceTexture("builtin/bedrock.png"))
 {
 }

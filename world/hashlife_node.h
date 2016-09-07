@@ -123,6 +123,7 @@ public:
     typedef std::uint8_t LevelType;
     static constexpr LevelType maxLevel = 32 - 2;
     const LevelType level;
+    const block::BlockSummary blockSummary;
     static constexpr bool isLeaf(LevelType level)
     {
         return level == 0;
@@ -218,7 +219,7 @@ public:
     static void free(HashlifeNodeBase *node) noexcept;
 
 private:
-    constexpr explicit HashlifeNodeBase(LevelType level)
+    constexpr explicit HashlifeNodeBase(LevelType level, const block::BlockSummary &blockSummary)
         : level((constexprAssert(level <= maxLevel), level))
     {
     }
@@ -281,7 +282,10 @@ public:
                                   HashlifeNodeBase *pxnypz,
                                   HashlifeNodeBase *pxpynz,
                                   HashlifeNodeBase *pxpypz)
-        : HashlifeNodeBase((constexprAssert(nxnynz), nxnynz->level + 1)),
+        : HashlifeNodeBase((constexprAssert(nxnynz), nxnynz->level + 1),
+                           nxnynz->blockSummary + nxnypz->blockSummary + nxpynz->blockSummary
+                               + nxpypz->blockSummary + pxnynz->blockSummary + pxnypz->blockSummary
+                               + pxpynz->blockSummary + pxpypz->blockSummary),
           childNodes{
               (constexprAssert(nxnynz && nxnynz->level + 1 == level), nxnynz),
               (constexprAssert(nxnypz && nxnypz->level + 1 == level), nxnypz),
@@ -305,7 +309,10 @@ public:
                         HashlifeNodeBase *pxpynz,
                         HashlifeNodeBase *pxpypz,
                         FutureState futureState)
-        : HashlifeNodeBase((constexprAssert(nxnynz), nxnynz->level + 1)),
+        : HashlifeNodeBase((constexprAssert(nxnynz), nxnynz->level + 1),
+                           nxnynz->blockSummary + nxnypz->blockSummary + nxpynz->blockSummary
+                               + nxpypz->blockSummary + pxnynz->blockSummary + pxnypz->blockSummary
+                               + pxpynz->blockSummary + pxpypz->blockSummary),
           childNodes{
               (constexprAssert(nxnynz && nxnynz->level + 1 == level), nxnynz),
               (constexprAssert(nxnypz && nxnypz->level + 1 == level), nxnypz),
@@ -393,15 +400,54 @@ public:
                                block::Block pxnynz,
                                block::Block pxnypz,
                                block::Block pxpynz,
-                               block::Block pxpypz)
-        : HashlifeNodeBase(0),
+                               block::Block pxpypz,
+                               const block::BlockSummary &blockSummary)
+        : HashlifeNodeBase(0, blockSummary),
           blocks{
               nxnynz, nxnypz, nxpynz, nxpypz, pxnynz, pxnypz, pxpynz, pxpypz,
           }
     {
         static_assert(levelSize == 2, "");
     }
-    constexpr HashlifeLeafNode(const BlocksArray &blocks) : HashlifeNodeBase(0), blocks(blocks)
+    HashlifeLeafNode(block::Block nxnynz,
+                     block::Block nxnypz,
+                     block::Block nxpynz,
+                     block::Block nxpypz,
+                     block::Block pxnynz,
+                     block::Block pxnypz,
+                     block::Block pxpynz,
+                     block::Block pxpypz)
+        : HashlifeLeafNode(nxnynz,
+                           nxnypz,
+                           nxpynz,
+                           nxpypz,
+                           pxnynz,
+                           pxnypz,
+                           pxpynz,
+                           pxpypz,
+                           (block::BlockDescriptor::getBlockSummary(nxnynz.getBlockKind())
+                            + block::BlockDescriptor::getBlockSummary(nxnypz.getBlockKind())
+                            + block::BlockDescriptor::getBlockSummary(nxpynz.getBlockKind())
+                            + block::BlockDescriptor::getBlockSummary(nxpypz.getBlockKind())
+                            + block::BlockDescriptor::getBlockSummary(pxnynz.getBlockKind())
+                            + block::BlockDescriptor::getBlockSummary(pxnypz.getBlockKind())
+                            + block::BlockDescriptor::getBlockSummary(pxpynz.getBlockKind())
+                            + block::BlockDescriptor::getBlockSummary(pxpypz.getBlockKind())))
+    {
+    }
+    constexpr HashlifeLeafNode(const BlocksArray &blocks, const block::BlockSummary &blockSummary)
+        : HashlifeNodeBase(0, blockSummary), blocks(blocks)
+    {
+    }
+    HashlifeLeafNode(const BlocksArray &blocks)
+        : HashlifeLeafNode(blocks[0][0][0],
+                           blocks[0][0][1],
+                           blocks[0][1][0],
+                           blocks[0][1][1],
+                           blocks[1][0][0],
+                           blocks[1][0][1],
+                           blocks[1][1][0],
+                           blocks[1][1][1])
     {
     }
     bool operator!=(const HashlifeLeafNode &rt) const

@@ -407,7 +407,8 @@ public:
 protected:
     explicit BlockDescriptor(std::string name,
                              lighting::LightProperties lightProperties,
-                             const BlockedFaces &blockedFaces) noexcept;
+                             const BlockedFaces &blockedFaces,
+                             const BlockSummary &blockSummary) noexcept;
 
 public:
     virtual ~BlockDescriptor() = default;
@@ -415,6 +416,7 @@ public:
     const BlockKind blockKind;
     const std::string name;
     const BlockedFaces blockedFaces;
+    const BlockSummary blockSummary;
     virtual void render(
         graphics::MemoryRenderBuffer &renderBuffer,
         const BlockStepInput &stepInput,
@@ -878,6 +880,12 @@ public:
         if(!blockKind)
             return lighting::LightProperties::transparent();
         return get(blockKind)->lightProperties;
+    }
+    static BlockSummary getBlockSummary(BlockKind blockKind) noexcept
+    {
+        if(!blockKind)
+            return BlockSummary::makeForEmptyBlockKind();
+        return get(blockKind)->blockSummary;
     }
     static lighting::BlockLighting makeBlockLighting(const BlockStepInput &stepInput,
                                                      const BlockStepGlobalState &stepGlobalState,

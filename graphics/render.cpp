@@ -32,6 +32,10 @@ std::shared_ptr<RenderBuffer> RenderBuffer::makeGPUBuffer(
 {
     return Driver::get().makeBuffer(maximumSizes);
 }
+
+EmptyRenderBuffer::~EmptyRenderBuffer()
+{
+}
 }
 }
 }

@@ -31,7 +31,8 @@ namespace builtin
 Air::Air()
     : BlockDescriptor("builtin.air",
                       lighting::LightProperties::transparent(),
-                      BlockedFaces{{false, false, false, false, false, false}})
+                      BlockedFaces{{false, false, false, false, false, false}},
+                      BlockSummary(true, false))
 {
 }
 

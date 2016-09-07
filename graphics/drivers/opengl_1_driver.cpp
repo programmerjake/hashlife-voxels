@@ -337,6 +337,8 @@ struct OpenGL1Driver::Implementation final
         {
             constexprAssert(!finished);
             constexprAssert(renderBuffer);
+            if(dynamic_cast<const EmptyRenderBuffer *>(renderBuffer.get()))
+                return;
             constexprAssert(dynamic_cast<const OpenGLRenderBuffer *>(renderBuffer.get()));
             constexprAssert(static_cast<const OpenGLRenderBuffer *>(renderBuffer.get())->finished);
             commands.push_back(Command(std::static_pointer_cast<OpenGLRenderBuffer>(renderBuffer),

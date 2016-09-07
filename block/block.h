@@ -138,6 +138,42 @@ struct Block final
     }
 };
 
+struct BlockSummary final
+{
+    bool areAllBlocksRenderedLikeAir : 1;
+    bool areAllBlocksRenderedLikeBedrock : 1;
+    constexpr bool rendersAnything() const noexcept
+    {
+        return !areAllBlocksRenderedLikeAir && !areAllBlocksRenderedLikeBedrock;
+    }
+    constexpr BlockSummary() noexcept : areAllBlocksRenderedLikeAir(false),
+                                        areAllBlocksRenderedLikeBedrock(false)
+    {
+    }
+    constexpr BlockSummary(bool areAllBlocksRenderedLikeAir,
+                           bool areAllBlocksRenderedLikeBedrock) noexcept
+        : areAllBlocksRenderedLikeAir(areAllBlocksRenderedLikeAir),
+          areAllBlocksRenderedLikeBedrock(areAllBlocksRenderedLikeBedrock)
+    {
+    }
+    static constexpr BlockSummary makeForEmptyBlockKind() noexcept
+    {
+        return BlockSummary(
+            true,
+            true); // all rendering flags set because we don't render faces against an empty block
+    }
+    constexpr BlockSummary operator+(const BlockSummary &rt) const noexcept
+    {
+        return BlockSummary(areAllBlocksRenderedLikeAir && rt.areAllBlocksRenderedLikeAir,
+                            areAllBlocksRenderedLikeBedrock && rt.areAllBlocksRenderedLikeBedrock);
+    }
+    BlockSummary &operator+=(const BlockSummary &rt) noexcept
+    {
+        *this = operator+(rt);
+        return *this;
+    }
+};
+
 enum class BlockFace : std::uint8_t
 {
     XAxis = 0,

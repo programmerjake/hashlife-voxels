@@ -99,6 +99,85 @@ public:
                                std::size_t bufferSize) const noexcept = 0;
 };
 
+class EmptyRenderBuffer : public ReadableRenderBuffer
+{
+    EmptyRenderBuffer(const EmptyRenderBuffer &) = delete;
+    EmptyRenderBuffer &operator=(const EmptyRenderBuffer &) = delete;
+
+private:
+    struct PrivateAccess final
+    {
+        friend class EmptyRenderBuffer;
+
+    private:
+        PrivateAccess() = default;
+    };
+
+public:
+    EmptyRenderBuffer(PrivateAccess)
+    {
+    }
+    virtual ~EmptyRenderBuffer();
+    virtual std::size_t getMaximumAdditionalSize(RenderLayer renderLayer) const noexcept override
+    {
+        return 0;
+    }
+    virtual void reserveAdditional(RenderLayer renderLayer, std::size_t howManyTriangles) override
+    {
+        constexprAssert(howManyTriangles == 0);
+    }
+    virtual void appendTriangles(RenderLayer renderLayer,
+                                 const Triangle *triangles,
+                                 std::size_t triangleCount,
+                                 const Transform &tform) override
+    {
+        constexprAssert(triangleCount == 0);
+    }
+    virtual void appendTriangles(RenderLayer renderLayer,
+                                 const Triangle *triangles,
+                                 std::size_t triangleCount) override
+    {
+        constexprAssert(triangleCount == 0);
+    }
+    virtual void appendBuffer(const ReadableRenderBuffer &buffer) override
+    {
+        for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+        {
+            constexprAssert(buffer.getTriangleCount(renderLayer) == 0);
+        }
+    }
+    virtual void appendBuffer(const ReadableRenderBuffer &buffer, const Transform &tform) override
+    {
+        for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+        {
+            constexprAssert(buffer.getTriangleCount(renderLayer) == 0);
+        }
+    }
+    virtual void finish() noexcept override
+    {
+    }
+    virtual std::size_t getTriangleCount(RenderLayer renderLayer) const noexcept override
+    {
+        return 0;
+    }
+    virtual void readTriangles(RenderLayer renderLayer,
+                               Triangle *buffer,
+                               std::size_t bufferSize) const noexcept override
+    {
+    }
+    virtual void readTriangles(RenderLayer renderLayer,
+                               TriangleWithoutNormal *buffer,
+                               std::size_t bufferSize) const noexcept override
+    {
+    }
+    static std::shared_ptr<EmptyRenderBuffer> get()
+    {
+        static std::shared_ptr<EmptyRenderBuffer> retval =
+            std::make_shared<EmptyRenderBuffer>(PrivateAccess());
+        return retval;
+    }
+};
+
 class MemoryRenderBuffer final : public ReadableRenderBuffer
 {
 private:

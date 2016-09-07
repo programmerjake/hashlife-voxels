@@ -104,6 +104,15 @@ private:
             position -= util::Vector3I32(centerSize / 2);
             return getNode(index.x, index.y, index.z)->get(position);
         }
+        block::BlockSummary getBlockSummary() const noexcept
+        {
+            block::BlockSummary retval = nodes[0]->blockSummary;
+            for(std::size_t i = 1; i < nodes.size(); i++)
+            {
+                retval += nodes[i]->blockSummary;
+            }
+            return retval;
+        }
     };
     struct RenderCacheKeyHasher
     {
@@ -204,13 +213,17 @@ public:
         {
             return RenderCacheKeyHasher()(key);
         }
-        bool operator==(const RenderCacheEntryReference &rt) const
+        bool operator==(const RenderCacheEntryReference &rt) const noexcept
         {
             return key == rt.key;
         }
-        bool operator!=(const RenderCacheEntryReference &rt) const
+        bool operator!=(const RenderCacheEntryReference &rt) const noexcept
         {
             return key != rt.key;
+        }
+        block::BlockSummary getBlockSummary() const noexcept
+        {
+            return key.getBlockSummary();
         }
     };
 
