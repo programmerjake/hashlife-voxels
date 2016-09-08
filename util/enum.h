@@ -270,39 +270,63 @@ struct EnumArray
     {
         return false;
     }
-    iterator begin()
+    T *data() noexcept
+    {
+        return values;
+    }
+    constexpr const T *data() const noexcept
+    {
+        return values;
+    }
+    T &front() noexcept
+    {
+        return values[0];
+    }
+    constexpr const T &front() const noexcept
+    {
+        return values[0];
+    }
+    T &back() noexcept
+    {
+        return values[size() - 1];
+    }
+    constexpr const T &back() const noexcept
+    {
+        return values[size() - 1];
+    }
+    iterator begin() noexcept
     {
         return &values[0];
     }
-    iterator end()
+    iterator end() noexcept
     {
         return begin() + size();
     }
-    constexpr const_iterator begin() const
+    constexpr const_iterator begin() const noexcept
     {
         return &values[0];
     }
-    constexpr const_iterator end() const
+    constexpr const_iterator end() const noexcept
     {
         return begin() + size();
     }
-    constexpr const_iterator iteratorTo(EnumType index) const
+    constexpr const_iterator iteratorTo(EnumType index) const noexcept
     {
         return &values[static_cast<typename EnumTraits<EnumType>::underlying_type>(index)
                        - static_cast<typename EnumTraits<EnumType>::underlying_type>(
                              EnumTraits<EnumType>::min)];
     }
-    iterator iteratorTo(EnumType index)
+    iterator iteratorTo(EnumType index) noexcept
     {
         return &values[static_cast<typename EnumTraits<EnumType>::underlying_type>(index)
                        - static_cast<typename EnumTraits<EnumType>::underlying_type>(
                              EnumTraits<EnumType>::min)];
     }
-    constexpr const T &operator[](EnumType index) const
+    constexpr const T &operator[](EnumType index) const noexcept
     {
         return *iteratorTo(index);
     }
-    T &operator[](EnumType index)
+    T &operator[](EnumType index) noexcept
     {
         return *iteratorTo(index);
     }

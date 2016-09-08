@@ -29,10 +29,14 @@
 #include "graphics/drivers/null_driver.h"
 #include "graphics/drivers/opengl_1_driver.h"
 #include "block/builtin/bedrock.h"
+#include "threading/threading.h"
 #include <sstream>
 #include <iostream>
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <condition_variable>
+#include <unordered_map>
 
 namespace programmerjake
 {
@@ -48,7 +52,8 @@ int main()
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t renderRange = 32;
+    constexpr std::int32_t ballSize = 30;
+    constexpr std::int32_t renderRange = ballSize + 1;
     typedef util::Array<util::Array<util::Array<block::Block, renderRange * 2>, renderRange * 2>,
                         renderRange * 2> BlocksArray;
     std::unique_ptr<BlocksArray> blocksArray(new BlocksArray);
@@ -59,7 +64,7 @@ int main()
             for(std::int32_t z = -renderRange; z < renderRange; z++)
             {
                 auto block = block::Block(block::builtin::Air::get()->blockKind);
-                if(x * x + y * y + z * z < 15 * 15)
+                if(x * x + y * y + z * z < ballSize * ballSize)
                     block = block::Block(block::builtin::Bedrock::get()->blockKind);
                 (*blocksArray)[x + renderRange][y + renderRange][z + renderRange] = block;
             }
@@ -70,16 +75,154 @@ int main()
                         util::Vector3I32(0),
                         util::Vector3I32(renderRange * 2));
     blocksArray.reset();
-    block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
+    const block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
         lighting::Lighting::maxLight, world::Dimension::overworld()));
+    struct GenerateRenderBuffersHasher
+    {
+        std::size_t operator()(
+            const std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference> &v) const
+        {
+            return v->hash();
+        }
+    };
+    struct GenerateRenderBuffersEquals
+    {
+        std::size_t operator()(
+            const std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference> &a,
+            const std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference> &b) const
+        {
+            return *a == *b;
+        }
+    };
+    struct GenerateRenderBuffersValue final
+    {
+        std::shared_ptr<graphics::ReadableRenderBuffer> renderBuffer = nullptr;
+    };
+    std::mutex generateRenderBuffersLock;
+    std::condition_variable generateRenderBuffersCond;
+    std::unordered_map<std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference>,
+                       GenerateRenderBuffersValue,
+                       GenerateRenderBuffersHasher,
+                       GenerateRenderBuffersEquals> generateRenderBuffersMap;
+    std::list<std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference>>
+        generateRenderBuffersWorkList;
+    bool generateRenderBuffersDone = false;
+    std::list<threading::Thread> generateRenderBuffersThreads;
+    const float nearPlane = 0.01f;
+    const float farPlane = 300.0f;
+    world::HashlifeWorld::GPURenderBufferCache gpuRenderBufferCache;
+
+    std::mutex mainGameLoopLock;
+    std::condition_variable mainGameLoopCond;
+    bool mainGameLoopDone = false;
+    bool mainGameLoopPaused = false;
+    threading::Thread mainGameLoopThread;
     try
     {
         std::size_t frameCount = 0;
         auto lastFPSReportTime = std::chrono::steady_clock::now();
+        std::size_t tickCount = 0;
+        auto lastTPSReportTime = lastFPSReportTime;
         graphics::Driver::get().run(
             [&]() -> std::shared_ptr<graphics::CommandBuffer>
             {
-                theWorld->stepAndCollectGarbage(blockStepGlobalState);
+                if(!mainGameLoopThread.joinable())
+                {
+                    std::size_t totalThreadCount = threading::Thread::hardwareConcurrency();
+                    if(totalThreadCount < 3)
+                        totalThreadCount = 3;
+                    for(std::size_t i = totalThreadCount - 2; i > 0; i--)
+                    {
+                        generateRenderBuffersThreads.push_back(threading::Thread(
+                            [&]()
+                            {
+                                std::unique_lock<std::mutex> lockIt(generateRenderBuffersLock);
+                                while(!generateRenderBuffersDone)
+                                {
+                                    if(generateRenderBuffersWorkList.empty())
+                                    {
+                                        generateRenderBuffersCond.wait(lockIt);
+                                        continue;
+                                    }
+                                    auto key = std::move(generateRenderBuffersWorkList.front());
+                                    generateRenderBuffersWorkList.pop_front();
+                                    lockIt.unlock();
+                                    auto result = world::HashlifeWorld::renderRenderCacheEntry(key);
+                                    lockIt.lock();
+                                    generateRenderBuffersMap[key].renderBuffer = std::move(result);
+                                    generateRenderBuffersCond.notify_all();
+                                }
+                            }));
+                    }
+                    mainGameLoopThread = threading::Thread(
+                        [&]()
+                        {
+                            std::unique_lock<std::mutex> lockIt(mainGameLoopLock);
+                            auto lastTick = std::chrono::high_resolution_clock::now();
+                            while(!mainGameLoopDone)
+                            {
+                                lastTick = std::chrono::high_resolution_clock::now();
+                                if(mainGameLoopPaused)
+                                {
+                                    mainGameLoopCond.wait(lockIt);
+                                    continue;
+                                }
+                                lockIt.unlock();
+                                auto now = std::chrono::steady_clock::now();
+                                tickCount++;
+                                if(now - lastTPSReportTime >= std::chrono::seconds(5))
+                                {
+                                    lastTPSReportTime += std::chrono::seconds(5);
+                                    std::ostringstream ss;
+                                    ss << "TPS: " << static_cast<float>(tickCount) / 5;
+                                    tickCount = 0;
+                                    logging::log(logging::Level::Info, "main", ss.str());
+                                }
+                                theWorld->stepAndCollectGarbage(blockStepGlobalState);
+                                theWorld->updateView(
+                                    [&](const std::shared_ptr<world::HashlifeWorld::
+                                                                  RenderCacheEntryReference> &key)
+                                        -> std::shared_ptr<graphics::ReadableRenderBuffer>
+                                    {
+                                        std::unique_lock<std::mutex> lockIt(
+                                            generateRenderBuffersLock);
+                                        auto iter = generateRenderBuffersMap.find(key);
+                                        if(iter == generateRenderBuffersMap.end())
+                                        {
+                                            generateRenderBuffersMap.emplace(
+                                                key, GenerateRenderBuffersValue());
+                                            generateRenderBuffersWorkList.push_back(key);
+                                            generateRenderBuffersCond.notify_all();
+                                            return nullptr;
+                                        }
+                                        if(std::get<1>(*iter).renderBuffer)
+                                        {
+                                            auto retval =
+                                                std::move(std::get<1>(*iter).renderBuffer);
+                                            generateRenderBuffersMap.erase(iter);
+                                            return retval;
+                                        }
+                                        return nullptr;
+                                    },
+                                    [&](const std::shared_ptr<world::HashlifeWorld::
+                                                                  GPURenderBufferCache::Entry> &
+                                            entry)
+                                    {
+                                        entry->gpuRenderBuffer =
+                                            entry->sourceRenderBuffers.render();
+                                    },
+                                    util::Vector3F(0.5),
+                                    farPlane,
+                                    blockStepGlobalState,
+                                    gpuRenderBufferCache);
+                                // sleep until 1/20 of a second has elapsed
+                                // since lastTick
+                                threading::thisThread::sleepUntil(lastTick
+                                                                  + std::chrono::milliseconds(50));
+                                lockIt.lock();
+                            }
+                        });
+                }
                 auto now = std::chrono::steady_clock::now();
                 frameCount++;
                 if(now - lastFPSReportTime >= std::chrono::seconds(5))
@@ -103,27 +246,19 @@ int main()
                     scaleY = 1;
                 auto commandBuffer = graphics::Driver::get().makeCommandBuffer();
                 commandBuffer->appendClearCommand(true, true, graphics::rgbF(0, 0, 0));
-                const float nearPlane = 0.01f;
-                const float farPlane = 50.0f;
-                theWorld->renderView(
-                    [&](const std::shared_ptr<world::HashlifeWorld::RenderCacheEntryReference> &
-                            renderCacheEntryReference)
-                    {
-                        return theWorld->renderRenderCacheEntry(renderCacheEntryReference);
-                    },
+                gpuRenderBufferCache.renderView(
                     util::Vector3F(0.5),
                     farPlane,
                     commandBuffer,
                     graphics::Transform::rotateY(t)
                         .concat(graphics::Transform::rotateX(t / 4))
-                        .concat(graphics::Transform::translate(0, 0, 10 * std::sin(t / 3) - 20)),
+                        .concat(graphics::Transform::translate(0, 0, -2 * ballSize)),
                     graphics::Transform::frustum(-nearPlane * scaleX,
                                                  nearPlane * scaleX,
                                                  -nearPlane * scaleY,
                                                  nearPlane * scaleY,
                                                  nearPlane,
-                                                 farPlane),
-                    blockStepGlobalState);
+                                                 farPlane));
                 commandBuffer->appendPresentCommandAndFinish();
                 return commandBuffer;
             },
@@ -144,6 +279,22 @@ int main()
     catch(QuitException &)
     {
     }
+    {
+        std::unique_lock<std::mutex> lockIt(generateRenderBuffersLock);
+        generateRenderBuffersDone = true;
+        generateRenderBuffersCond.notify_all();
+    }
+    {
+        std::unique_lock<std::mutex> lockIt(mainGameLoopLock);
+        mainGameLoopDone = true;
+        mainGameLoopCond.notify_all();
+    }
+    for(auto &thread : generateRenderBuffersThreads)
+    {
+        thread.join();
+    }
+    if(mainGameLoopThread.joinable())
+        mainGameLoopThread.join();
     return 0;
 }
 }

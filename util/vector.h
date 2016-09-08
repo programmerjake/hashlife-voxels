@@ -230,7 +230,7 @@ public:
     }
     constexpr friend T dot(const Vector3 &a, const Vector3 &b)
     {
-        return (a + b).sum();
+        return (a * b).sum();
     }
     constexpr friend Vector3 cross(const Vector3 &a, const Vector3 &b)
     {

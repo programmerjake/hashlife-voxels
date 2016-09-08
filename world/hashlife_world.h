@@ -34,6 +34,7 @@
 #include <unordered_map>
 #include <utility>
 #include <type_traits>
+#include <mutex>
 
 namespace programmerjake
 {
@@ -42,6 +43,7 @@ namespace voxels
 namespace graphics
 {
 class RenderBuffer;
+class ReadableRenderBuffer;
 struct CommandBuffer;
 struct Transform;
 }
@@ -60,11 +62,12 @@ private:
     private:
         PrivateAccessTag() = default;
     };
-    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 2;
+    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 3;
     struct RenderCacheKey final
     {
         friend class HashlifeWorld;
         static constexpr std::size_t nodeArraySize = 3;
+        static_assert(nodeArraySize == 3, "");
         static constexpr std::int32_t centerSize = HashlifeNodeBase::getSize(renderCacheNodeLevel);
         static constexpr int logBase2OfCenterSize =
             HashlifeNodeBase::getLogBase2OfSize(renderCacheNodeLevel);
@@ -130,7 +133,7 @@ private:
     struct RenderCacheEntry final
     {
         std::list<const RenderCacheKey *>::iterator renderCacheEntryListIterator;
-        std::shared_ptr<graphics::RenderBuffer> renderBuffer;
+        std::shared_ptr<graphics::ReadableRenderBuffer> renderBuffer;
     };
 
 private:
@@ -813,7 +816,8 @@ private:
     }
 
 public:
-    std::pair<std::shared_ptr<graphics::RenderBuffer>, std::shared_ptr<RenderCacheEntryReference>>
+    std::pair<std::shared_ptr<graphics::ReadableRenderBuffer>,
+              std::shared_ptr<RenderCacheEntryReference>>
         getRenderCacheEntry(util::Vector3I32 position,
                             const block::BlockStepGlobalState &blockStepGlobalState)
     {
@@ -849,48 +853,118 @@ public:
     }
     void setRenderCacheEntry(
         const std::shared_ptr<RenderCacheEntryReference> &renderCacheEntryReference,
-        std::shared_ptr<graphics::RenderBuffer> renderBuffer)
+        std::shared_ptr<graphics::ReadableRenderBuffer> renderBuffer)
     {
         constexprAssert(renderCacheEntryReference);
         auto &entryValue = std::get<1>(findOrMakeRenderCacheEntry(renderCacheEntryReference->key));
         entryValue.renderBuffer = std::move(renderBuffer);
     }
-    static std::shared_ptr<graphics::RenderBuffer> renderRenderCacheEntry(
+    static std::shared_ptr<graphics::ReadableRenderBuffer> renderRenderCacheEntry(
         const std::shared_ptr<RenderCacheEntryReference> &renderCacheEntryReference);
-    void renderView(std::shared_ptr<graphics::RenderBuffer>(*handleUnrenderedChunk)(
-                        void *arg,
-                        std::shared_ptr<RenderCacheEntryReference> renderCacheEntryReference),
-                    void *handleUnrenderedChunkArg,
-                    util::Vector3F viewLocation,
-                    float viewDistance,
-                    const std::shared_ptr<graphics::CommandBuffer> &commandBuffer,
-                    const graphics::Transform &viewTransform,
-                    const graphics::Transform &projectionTransform,
-                    const block::BlockStepGlobalState &blockStepGlobalState);
-    template <typename HandleUnrenderedChunk>
-    void renderView(HandleUnrenderedChunk &&handleUnrenderedChunk,
-                    util::Vector3F viewLocation,
-                    float viewDistance,
-                    const std::shared_ptr<graphics::CommandBuffer> &commandBuffer,
-                    const graphics::Transform &viewTransform,
-                    const graphics::Transform &projectionTransform,
-                    const block::BlockStepGlobalState &blockStepGlobalState)
+    class GPURenderBufferCache final
     {
-        renderView(
+    public:
+        static constexpr int logBase2OfSizeInChunks =
+            6 - RenderCacheEntryReference::logBase2OfCenterSize;
+        static_assert(logBase2OfSizeInChunks >= 0, "");
+        static constexpr int logBase2OfSizeInBlocks =
+            logBase2OfSizeInChunks + RenderCacheEntryReference::logBase2OfCenterSize;
+        static constexpr std::int32_t sizeInChunks = 1LL << logBase2OfSizeInChunks;
+        static constexpr std::int32_t sizeInBlocks = 1LL << logBase2OfSizeInBlocks;
+        static_assert(sizeInBlocks == sizeInChunks * RenderCacheEntryReference::centerSize, "");
+        struct SourceRenderBuffers final
+        {
+            util::Array<util::Array<util::Array<std::shared_ptr<graphics::ReadableRenderBuffer>,
+                                                sizeInChunks>,
+                                    sizeInChunks>,
+                        sizeInChunks> renderBuffers;
+            std::shared_ptr<graphics::RenderBuffer> render() const;
+        };
+        struct Entry final
+        {
+            const util::Vector3I32 position;
+            SourceRenderBuffers sourceRenderBuffers;
+            std::shared_ptr<graphics::RenderBuffer> gpuRenderBuffer;
+            explicit Entry(util::Vector3I32 position)
+                : position(position), sourceRenderBuffers(), gpuRenderBuffer(nullptr)
+            {
+            }
+        };
+
+    private:
+        static constexpr std::size_t sliceCount = 31;
+        struct Slice final
+        {
+            std::unordered_map<util::Vector3I32, std::shared_ptr<Entry>> entries;
+            mutable std::mutex lock;
+        };
+        util::Array<Slice, sliceCount> slices;
+        static std::size_t getSliceIndex(util::Vector3I32 location)
+        {
+            return std::hash<util::Vector3I32>()(location) % sliceCount;
+        }
+
+    public:
+        std::shared_ptr<Entry> getEntry(util::Vector3I32 location) const
+        {
+            auto &slice = slices[getSliceIndex(location)];
+            std::unique_lock<std::mutex> lockIt(slice.lock);
+            auto iter = slice.entries.find(location);
+            if(iter != slice.entries.end())
+                return std::get<1>(*iter);
+            return nullptr;
+        }
+        void setEntry(util::Vector3I32 location, std::shared_ptr<Entry> entry)
+        {
+            auto &slice = slices[getSliceIndex(location)];
+            std::unique_lock<std::mutex> lockIt(slice.lock);
+            slice.entries[location] = std::move(entry);
+        }
+        void renderView(util::Vector3F viewLocation,
+                        float viewDistance,
+                        const std::shared_ptr<graphics::CommandBuffer> &commandBuffer,
+                        const graphics::Transform &viewTransform,
+                        const graphics::Transform &projectionTransform) const;
+    };
+    void updateView(
+        std::shared_ptr<graphics::ReadableRenderBuffer>(*handleUnrenderedChunk)(
+            void *arg, std::shared_ptr<RenderCacheEntryReference> renderCacheEntryReference),
+        void *handleUnrenderedChunkArg,
+        void (*handleUpdateGPURenderBuffer)(void *arg,
+                                            std::shared_ptr<GPURenderBufferCache::Entry> entry),
+        void *handleUpdateGPURenderBufferArg,
+        util::Vector3F viewLocation,
+        float viewDistance,
+        const block::BlockStepGlobalState &blockStepGlobalState,
+        GPURenderBufferCache &gpuRenderBufferCache);
+    template <typename HandleUnrenderedChunk, typename HandleUpdateGPURenderBuffer>
+    void updateView(HandleUnrenderedChunk &&handleUnrenderedChunk,
+                    HandleUpdateGPURenderBuffer &&handleUpdateGPURenderBuffer,
+                    util::Vector3F viewLocation,
+                    float viewDistance,
+                    const block::BlockStepGlobalState &blockStepGlobalState,
+                    GPURenderBufferCache &gpuRenderBufferCache)
+    {
+        updateView(
             [](void *arg, std::shared_ptr<RenderCacheEntryReference> renderCacheEntryReference)
-                -> std::shared_ptr<graphics::RenderBuffer>
+                -> std::shared_ptr<graphics::ReadableRenderBuffer>
             {
                 return std::forward<HandleUnrenderedChunk>(
                     *static_cast<typename std::decay<HandleUnrenderedChunk>::type *>(arg))(
                     std::move(renderCacheEntryReference));
             },
             const_cast<char *>(&reinterpret_cast<const volatile char &>(handleUnrenderedChunk)),
+            [](void *arg, std::shared_ptr<GPURenderBufferCache::Entry> entry) -> void
+            {
+                std::forward<HandleUpdateGPURenderBuffer>(
+                    *static_cast<typename std::decay<HandleUpdateGPURenderBuffer>::type *>(arg))(
+                    std::move(entry));
+            },
+            const_cast<char *>(&reinterpret_cast<const volatile char &>(handleUnrenderedChunk)),
             viewLocation,
             viewDistance,
-            commandBuffer,
-            viewTransform,
-            projectionTransform,
-            blockStepGlobalState);
+            blockStepGlobalState,
+            gpuRenderBufferCache);
     }
 };
 }

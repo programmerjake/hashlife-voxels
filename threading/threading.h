@@ -134,6 +134,10 @@ public:
     void detach();
     std::string getName() const;
     Id getId() const noexcept;
+    static std::size_t hardwareConcurrency()
+    {
+        return std::thread::hardware_concurrency();
+    }
 };
 
 namespace thisThread

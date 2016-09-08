@@ -1,2 +1,6 @@
 /Debug/
 /Debug Unoptimized/
+/Release/
+/Debug Profile/
+/.settings/
+/gmon.out

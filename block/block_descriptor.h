@@ -854,12 +854,14 @@ public:
         return BlockStepFullOutput(
             Block(outputBlockKind,
                   get(outputBlockKind)
-                      ->lightProperties.eval(stepInput.blocks[0][1][1].getLighting(),
-                                             stepInput.blocks[2][1][1].getLighting(),
-                                             stepInput.blocks[1][0][1].getLighting(),
-                                             stepInput.blocks[1][2][1].getLighting(),
-                                             stepInput.blocks[1][1][0].getLighting(),
-                                             stepInput.blocks[1][1][2].getLighting())),
+                      ->lightProperties.eval(
+                          stepInput.blocks[0][1][1].getLightingIfNotEmpty(),
+                          stepInput.blocks[2][1][1].getLightingIfNotEmpty(),
+                          stepInput.blocks[1][0][1].getLightingIfNotEmpty(),
+                          stepInput.blocks[1][2][1]
+                              .getLighting(), // light from empty block only if above
+                          stepInput.blocks[1][1][0].getLightingIfNotEmpty(),
+                          stepInput.blocks[1][1][2].getLightingIfNotEmpty())),
             std::move(blockStepPartOutput.actions));
     }
     static bool needRenderBlockFace(const BlockDescriptor *neighborBlockDescriptor,

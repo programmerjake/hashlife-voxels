@@ -26,6 +26,7 @@
 #include <vector>
 #include <mutex>
 #include <sstream>
+#include <unordered_map>
 #include "../graphics_util/texture_atlas.h"
 #include "../../logging/logging.h"
 
@@ -278,6 +279,19 @@ struct OpenGL1Driver::Implementation final
                 fillOpenGLTriangles(lockedTextureLock);
         }
     };
+    struct OpenGLBufferObject final
+    {
+        std::weak_ptr<OpenGLRenderBuffer> renderBuffer;
+        util::EnumArray<GLuint, RenderLayer> openGLBuffers;
+        OpenGLBufferObject() : renderBuffer(), openGLBuffers()
+        {
+        }
+        OpenGLBufferObject(std::weak_ptr<OpenGLRenderBuffer> renderBuffer,
+                           const util::EnumArray<GLuint, RenderLayer> &openGLBuffers)
+            : renderBuffer(std::move(renderBuffer)), openGLBuffers(openGLBuffers)
+        {
+        }
+    };
     struct OpenGLCommandBuffer final : public CommandBuffer
     {
         struct Command final
@@ -443,6 +457,8 @@ struct OpenGL1Driver::Implementation final
     std::atomic_bool contextRecreationNeeded{false};
     OpenGL1Driver &driver;
     SDL_GLContext openGLContext = nullptr;
+    std::unordered_map<const OpenGLRenderBuffer *, OpenGLBufferObject>
+        renderBufferToOpenGLBufferObjectMap;
     explicit Implementation(OpenGL1Driver *driver) : driver(*driver)
     {
         auto image = Image::make(1, 1);
@@ -452,6 +468,7 @@ struct OpenGL1Driver::Implementation final
     bool libraryLoaded = false;
     bool srgbTexturesSupported = false;
     bool srgbFramebufferSupported = false;
+    bool buffersSupported = false;
 
 #define OpenGLBaseFunctions()              \
     FN(glEnable, ENABLE)                   \
@@ -481,11 +498,22 @@ struct OpenGL1Driver::Implementation final
     FN(glDepthMask, DEPTHMASK)             \
     FN(glEnableClientState, ENABLECLIENTSTATE)
 
+#define OpenGLBufferFunctions()              \
+    FN(glBindBufferARB, BINDBUFFERARB)       \
+    FN(glDeleteBuffersARB, DELETEBUFFERSARB) \
+    FN(glGenBuffersARB, GENBUFFERSARB)       \
+    FN(glBufferDataARB, BUFFERDATAARB)
+
 #define FN(a, b)                           \
     typedef decltype(::a) *PFNGL##b##PROC; \
     PFNGL##b##PROC a = nullptr;
 
     OpenGLBaseFunctions();
+#undef FN
+
+#define FN(a, b) PFNGL##b##PROC a = nullptr;
+
+    OpenGLBufferFunctions();
 #undef FN
 
     void loadFunctions()
@@ -496,11 +524,15 @@ struct OpenGL1Driver::Implementation final
         throw std::runtime_error("loading " #a " failed");
 
         OpenGLBaseFunctions();
-#undef FN
         srgbTexturesSupported = SDL_GL_ExtensionSupported("GL_EXT_texture_sRGB");
         srgbFramebufferSupported = SDL_GL_ExtensionSupported("GL_ARB_framebuffer_sRGB");
+        buffersSupported = SDL_GL_ExtensionSupported("GL_ARB_vertex_buffer_object");
+        if(buffersSupported)
+            OpenGLBufferFunctions();
+#undef FN
     }
 #undef OpenGLBaseFunctions
+#undef OpenGLBufferFunctions
     void setupContext()
     {
         glEnable(GL_DEPTH_TEST);
@@ -578,22 +610,44 @@ struct OpenGL1Driver::Implementation final
                     command->viewTransform.positionMatrix));
                 glMatrixMode(GL_PROJECTION);
                 loadMatrix(command->projectionTransform.positionMatrix);
+                const char *bufferBase = nullptr;
+                if(buffersSupported)
+                {
+                    auto &buffer = renderBufferToOpenGLBufferObjectMap[command->renderBuffer.get()];
+                    if(buffer.openGLBuffers[renderLayer] == 0)
+                    {
+                        buffer.renderBuffer = command->renderBuffer;
+                        glGenBuffersARB(1, &buffer.openGLBuffers[renderLayer]);
+                        glBindBufferARB(GL_ARRAY_BUFFER, buffer.openGLBuffers[renderLayer]);
+                        glBufferDataARB(
+                            GL_ARRAY_BUFFER,
+                            triangleBuffer.bufferUsed * TriangleWithoutNormal::vertexCount
+                                * sizeof(OpenGLVertex),
+                            static_cast<const void *>(triangleBuffer.openGLTriangles.get()),
+                            GL_STATIC_DRAW);
+                    }
+                    else
+                    {
+                        glBindBufferARB(GL_ARRAY_BUFFER, buffer.openGLBuffers[renderLayer]);
+                    }
+                }
+                else
+                {
+                    bufferBase =
+                        reinterpret_cast<const char *>(triangleBuffer.openGLTriangles.get());
+                }
                 glVertexPointer(3,
                                 GL_FLOAT,
                                 sizeof(OpenGLVertex),
-                                reinterpret_cast<const char *>(triangleBuffer.openGLTriangles.get())
-                                    + offsetof(OpenGLVertex, position));
+                                bufferBase + offsetof(OpenGLVertex, position));
                 glColorPointer(4,
                                GL_UNSIGNED_BYTE,
                                sizeof(OpenGLVertex),
-                               reinterpret_cast<const char *>(triangleBuffer.openGLTriangles.get())
-                                   + offsetof(OpenGLVertex, color));
-                glTexCoordPointer(
-                    2,
-                    GL_FLOAT,
-                    sizeof(OpenGLVertex),
-                    reinterpret_cast<const char *>(triangleBuffer.openGLTriangles.get())
-                        + offsetof(OpenGLVertex, textureCoordinate));
+                               bufferBase + offsetof(OpenGLVertex, color));
+                glTexCoordPointer(2,
+                                  GL_FLOAT,
+                                  sizeof(OpenGLVertex),
+                                  bufferBase + offsetof(OpenGLVertex, textureCoordinate));
                 glDrawArrays(GL_TRIANGLES,
                              0,
                              static_cast<GLsizei>(triangleBuffer.bufferUsed
@@ -637,6 +691,20 @@ struct OpenGL1Driver::Implementation final
         renderBuffers(renderCommands);
         renderCommands.clear();
         SDL_GL_SwapWindow(driver.getWindow());
+        for(auto iter = renderBufferToOpenGLBufferObjectMap.begin();
+            iter != renderBufferToOpenGLBufferObjectMap.end();)
+        {
+            auto &buffer = std::get<1>(*iter);
+            if(buffer.renderBuffer.expired())
+            {
+                glDeleteBuffersARB(buffer.openGLBuffers.size(), buffer.openGLBuffers.data());
+                iter = renderBufferToOpenGLBufferObjectMap.erase(iter);
+            }
+            else
+            {
+                ++iter;
+            }
+        }
     }
 };
 
@@ -687,6 +755,7 @@ void OpenGL1Driver::destroyGraphicsContext() noexcept
     SDL_GL_DeleteContext(implementation->openGLContext);
     implementation->openGLContext = nullptr;
     implementation->textureId = 0;
+    implementation->renderBufferToOpenGLBufferObjectMap.clear();
     std::unique_lock<std::mutex> lockedTextureLock(implementation->textureLock);
     implementation->textureLayoutNeeded = true;
     lockedTextureLock.unlock();

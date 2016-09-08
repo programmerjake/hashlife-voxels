@@ -123,6 +123,10 @@ struct Block final
                                   getIndirectArtificalLight(),
                                   lighting::Lighting::makeDirectOnly);
     }
+    constexpr lighting::Lighting getLightingIfNotEmpty() const
+    {
+        return getBlockKind() == BlockKind::empty() ? lighting::Lighting() : getLighting();
+    }
     constexpr BlockKind getBlockKind() const
     {
         return BlockKind((value >> lighting::Lighting::lightBitWidth * 3)
