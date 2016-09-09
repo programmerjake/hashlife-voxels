@@ -62,7 +62,7 @@ private:
     private:
         PrivateAccessTag() = default;
     };
-    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 3;
+    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 2;
     struct RenderCacheKey final
     {
         friend class HashlifeWorld;
@@ -115,6 +115,79 @@ private:
                 retval += nodes[i]->blockSummary;
             }
             return retval;
+        }
+        template <typename BlocksArray>
+        void getBlocks(BlocksArray &&blocksArray,
+                       util::Vector3I32 keyRelativePosition,
+                       util::Vector3I32 arrayPosition,
+                       util::Vector3I32 size) const
+        {
+            keyRelativePosition += util::Vector3I32(centerSize);
+            constexprAssert(size.min() >= 0);
+            if(size.min() <= 0)
+                return;
+            util::Vector3I32 minPosition(0);
+            util::Vector3I32 maxPosition(centerSize * nodeArraySize - 1);
+            for(auto position = keyRelativePosition; position.x < keyRelativePosition.x + size.x;
+                position.x++)
+            {
+                if(position.x >= minPosition.x && position.x <= maxPosition.x)
+                {
+                    position.x = maxPosition.x + 1;
+                    continue;
+                }
+                for(position.y = keyRelativePosition.y; position.y < keyRelativePosition.y + size.y;
+                    position.y++)
+                {
+                    if(position.y >= minPosition.y && position.y <= maxPosition.y)
+                    {
+                        position.y = maxPosition.y + 1;
+                        continue;
+                    }
+                    for(position.z = keyRelativePosition.z;
+                        position.z < keyRelativePosition.z + size.z;
+                        position.z++)
+                    {
+                        if(position.z >= minPosition.z && position.z <= maxPosition.z)
+                        {
+                            position.z = maxPosition.z + 1;
+                            continue;
+                        }
+                        const auto blocksArrayPosition =
+                            position + arrayPosition - keyRelativePosition;
+                        std::forward<BlocksArray>(
+                            blocksArray)[blocksArrayPosition.x][blocksArrayPosition
+                                                                    .y][blocksArrayPosition.z] =
+                            block::Block();
+                    }
+                }
+            }
+            for(util::Vector3I32 index(0); index.x < nodeArraySize; index.x++)
+            {
+                for(index.y = 0; index.y < nodeArraySize; index.y++)
+                {
+                    for(index.z = 0; index.z < nodeArraySize; index.z++)
+                    {
+                        auto position = index * util::Vector3I32(centerSize);
+                        static_assert(HashlifeNodeBase::levelSize == 2, "");
+                        static_assert(centerSize >= 2, "");
+                        auto startArrayPosition =
+                            max(position - keyRelativePosition + arrayPosition, arrayPosition);
+                        auto endArrayPosition =
+                            max(startArrayPosition,
+                                min(position - keyRelativePosition + arrayPosition
+                                        + util::Vector3I32(centerSize),
+                                    arrayPosition + size));
+                        getBlocksImplementation(getNode(index.x, index.y, index.z),
+                                                std::forward<BlocksArray>(blocksArray),
+                                                startArrayPosition - arrayPosition
+                                                    + keyRelativePosition
+                                                    - util::Vector3I32(centerSize / 2) - position,
+                                                startArrayPosition,
+                                                endArrayPosition - startArrayPosition);
+                    }
+                }
+            }
         }
     };
     struct RenderCacheKeyHasher
@@ -183,6 +256,18 @@ public:
         {
             dumpNode(rootNode, os);
         }
+        template <typename BlocksArray>
+        void getBlocks(BlocksArray &&blocksArray,
+                       util::Vector3I32 worldPosition,
+                       util::Vector3I32 arrayPosition,
+                       util::Vector3I32 size) const
+        {
+            getBlocks(rootNode,
+                      std::forward<BlocksArray>(blocksArray),
+                      worldPosition,
+                      arrayPosition,
+                      size);
+        }
     };
     class RenderCacheEntryReference final
     {
@@ -227,6 +312,15 @@ public:
         block::BlockSummary getBlockSummary() const noexcept
         {
             return key.getBlockSummary();
+        }
+        template <typename BlocksArray>
+        void getBlocks(BlocksArray &&blocksArray,
+                       util::Vector3I32 entryRelativePosition,
+                       util::Vector3I32 arrayPosition,
+                       util::Vector3I32 size) const
+        {
+            key.getBlocks(
+                std::forward<BlocksArray>(blocksArray), entryRelativePosition, arrayPosition, size);
         }
     };
 
@@ -671,18 +765,18 @@ private:
     template <typename BlocksArray>
     HashlifeNodeBase *setBlocks(HashlifeNodeBase *node,
                                 BlocksArray &&blocksArray,
-                                util::Vector3I32 targetPosition,
-                                util::Vector3I32 sourcePosition,
+                                util::Vector3I32 worldPosition,
+                                util::Vector3I32 arrayPosition,
                                 util::Vector3I32 size)
     {
         constexprAssert(size.min() >= 0);
-        constexprAssert(sourcePosition.x + size.x <= blocksArray.size());
-        constexprAssert(sourcePosition.y + size.y <= blocksArray[0].size());
-        constexprAssert(sourcePosition.z + size.z <= blocksArray[0][0].size());
-        constexprAssert(node->isPositionInside(targetPosition));
+        constexprAssert(arrayPosition.x + size.x <= blocksArray.size());
+        constexprAssert(arrayPosition.y + size.y <= blocksArray[0].size());
+        constexprAssert(arrayPosition.z + size.z <= blocksArray[0][0].size());
         if(size.min() == 0)
             return node;
-        constexprAssert(node->isPositionInside(targetPosition + size - util::Vector3I32(1)));
+        constexprAssert(node->isPositionInside(worldPosition));
+        constexprAssert(node->isPositionInside(worldPosition + size - util::Vector3I32(1)));
         if(node->isLeaf())
         {
             HashlifeLeafNode::BlocksArray blocks;
@@ -696,8 +790,8 @@ private:
                         static_assert(HashlifeNodeBase::levelSize % 2 == 0, "");
                         auto inputPosition =
                             position - util::Vector3I32(HashlifeNodeBase::levelSize / 2);
-                        if((inputPosition - targetPosition).min() < 0
-                           || (inputPosition - targetPosition - size).max() >= 0)
+                        if((inputPosition - worldPosition).min() < 0
+                           || (inputPosition - worldPosition - size).max() >= 0)
                         {
                             blocks[position.x][position.y][position.z] =
                                 static_cast<HashlifeLeafNode *>(node)->getBlock(position);
@@ -705,7 +799,7 @@ private:
                         else
                         {
                             const auto blocksArrayPosition =
-                                inputPosition + sourcePosition - targetPosition;
+                                inputPosition + arrayPosition - worldPosition;
                             blocks[position.x][position.y][position.z] = std::forward<BlocksArray>(
                                 blocksArray)[blocksArrayPosition.x][blocksArrayPosition
                                                                         .y][blocksArrayPosition.z];
@@ -732,14 +826,14 @@ private:
                         auto offset = -util::Vector3I32(node->getQuarterSize()) - minInputPosition;
                         auto endInputPosition =
                             minInputPosition + util::Vector3I32(node->getHalfSize());
-                        minInputPosition = max(minInputPosition, targetPosition);
-                        endInputPosition = min(endInputPosition, targetPosition + size);
+                        minInputPosition = max(minInputPosition, worldPosition);
+                        endInputPosition = min(endInputPosition, worldPosition + size);
                         if((endInputPosition - minInputPosition).min() > 0)
                             childNodes[position.x][position.y][position.z] = setBlocks(
                                 static_cast<HashlifeNonleafNode *>(node)->getChildNode(position),
                                 std::forward<BlocksArray>(blocksArray),
                                 minInputPosition + offset,
-                                sourcePosition - targetPosition + minInputPosition,
+                                arrayPosition - worldPosition + minInputPosition,
                                 endInputPosition - minInputPosition);
                         else
                             childNodes[position.x][position.y][position.z] =
@@ -754,18 +848,147 @@ private:
 public:
     template <typename BlocksArray>
     void setBlocks(BlocksArray &&blocksArray,
-                   util::Vector3I32 targetPosition,
-                   util::Vector3I32 sourcePosition,
+                   util::Vector3I32 worldPosition,
+                   util::Vector3I32 arrayPosition,
                    util::Vector3I32 size)
     {
         constexprAssert(size.min() >= 0);
         if(size.min() <= 0)
             return;
-        while(!rootNode->isPositionInside(targetPosition)
-              || !rootNode->isPositionInside(targetPosition + size - util::Vector3I32(1)))
+        while(!rootNode->isPositionInside(worldPosition)
+              || !rootNode->isPositionInside(worldPosition + size - util::Vector3I32(1)))
             expandRoot();
         rootNode = setBlocks(
-            rootNode, std::forward<BlocksArray>(blocksArray), targetPosition, sourcePosition, size);
+            rootNode, std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+    }
+
+private:
+    template <typename BlocksArray>
+    static void getBlocksImplementation(HashlifeNodeBase *node,
+                                        BlocksArray &&blocksArray,
+                                        util::Vector3I32 worldPosition,
+                                        util::Vector3I32 arrayPosition,
+                                        util::Vector3I32 size)
+    {
+        constexprAssert(size.min() >= 0);
+        constexprAssert(arrayPosition.x + size.x <= blocksArray.size());
+        constexprAssert(arrayPosition.y + size.y <= blocksArray[0].size());
+        constexprAssert(arrayPosition.z + size.z <= blocksArray[0][0].size());
+        if(size.min() == 0)
+            return;
+        constexprAssert(node->isPositionInside(worldPosition));
+        constexprAssert(node->isPositionInside(worldPosition + size - util::Vector3I32(1)));
+        if(node->isLeaf())
+        {
+            for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
+                position.x++)
+            {
+                for(position.y = 0; position.y < HashlifeNodeBase::levelSize; position.y++)
+                {
+                    for(position.z = 0; position.z < HashlifeNodeBase::levelSize; position.z++)
+                    {
+                        static_assert(HashlifeNodeBase::levelSize % 2 == 0, "");
+                        auto inputPosition =
+                            position - util::Vector3I32(HashlifeNodeBase::levelSize / 2);
+                        if((inputPosition - worldPosition).min() >= 0
+                           && (inputPosition - worldPosition - size).max() < 0)
+                        {
+                            const auto blocksArrayPosition =
+                                inputPosition + arrayPosition - worldPosition;
+                            std::forward<BlocksArray>(
+                                blocksArray)[blocksArrayPosition.x][blocksArrayPosition
+                                                                        .y][blocksArrayPosition.z] =
+                                static_cast<HashlifeLeafNode *>(node)->getBlock(position);
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
+                position.x++)
+            {
+                for(position.y = 0; position.y < HashlifeNodeBase::levelSize; position.y++)
+                {
+                    for(position.z = 0; position.z < HashlifeNodeBase::levelSize; position.z++)
+                    {
+                        static_assert(HashlifeNodeBase::levelSize % 2 == 0, "");
+                        auto minInputPosition =
+                            (position - util::Vector3I32(HashlifeNodeBase::levelSize / 2))
+                            * util::Vector3I32(node->getHalfSize());
+                        auto offset = -util::Vector3I32(node->getQuarterSize()) - minInputPosition;
+                        auto endInputPosition =
+                            minInputPosition + util::Vector3I32(node->getHalfSize());
+                        minInputPosition = max(minInputPosition, worldPosition);
+                        endInputPosition = min(endInputPosition, worldPosition + size);
+                        if((endInputPosition - minInputPosition).min() > 0)
+                            getBlocksImplementation(
+                                static_cast<HashlifeNonleafNode *>(node)->getChildNode(position),
+                                std::forward<BlocksArray>(blocksArray),
+                                minInputPosition + offset,
+                                arrayPosition - worldPosition + minInputPosition,
+                                endInputPosition - minInputPosition);
+                    }
+                }
+            }
+        }
+    }
+    template <typename BlocksArray>
+    static void getBlocks(HashlifeNodeBase *node,
+                          BlocksArray &&blocksArray,
+                          util::Vector3I32 worldPosition,
+                          util::Vector3I32 arrayPosition,
+                          util::Vector3I32 size)
+    {
+        constexprAssert(size.min() >= 0);
+        if(size.min() <= 0)
+            return;
+        util::Vector3I32 minPosition(-node->getHalfSize());
+        util::Vector3I32 maxPosition(node->getHalfSize() - 1);
+        for(auto position = worldPosition; position.x < worldPosition.x + size.x; position.x++)
+        {
+            if(position.x >= minPosition.x && position.x <= maxPosition.x)
+            {
+                position.x = maxPosition.x + 1;
+                continue;
+            }
+            for(position.y = worldPosition.y; position.y < worldPosition.y + size.y; position.y++)
+            {
+                if(position.y >= minPosition.y && position.y <= maxPosition.y)
+                {
+                    position.y = maxPosition.y + 1;
+                    continue;
+                }
+                for(position.z = worldPosition.z; position.z < worldPosition.z + size.z;
+                    position.z++)
+                {
+                    if(position.z >= minPosition.z && position.z <= maxPosition.z)
+                    {
+                        position.z = maxPosition.z + 1;
+                        continue;
+                    }
+                    const auto blocksArrayPosition = position + arrayPosition - worldPosition;
+                    std::forward<BlocksArray>(
+                        blocksArray)[blocksArrayPosition.x][blocksArrayPosition
+                                                                .y][blocksArrayPosition.z] =
+                        block::Block();
+                }
+            }
+        }
+        getBlocksImplementation(
+            node, std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+    }
+
+public:
+    template <typename BlocksArray>
+    void getBlocks(BlocksArray &&blocksArray,
+                   util::Vector3I32 worldPosition,
+                   util::Vector3I32 arrayPosition,
+                   util::Vector3I32 size) const
+    {
+        getBlocks(
+            rootNode, std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
     }
     void setBlock(block::Block block, util::Vector3I32 position)
     {
@@ -865,7 +1088,7 @@ public:
     {
     public:
         static constexpr int logBase2OfSizeInChunks =
-            6 - RenderCacheEntryReference::logBase2OfCenterSize;
+            5 - RenderCacheEntryReference::logBase2OfCenterSize;
         static_assert(logBase2OfSizeInChunks >= 0, "");
         static constexpr int logBase2OfSizeInBlocks =
             logBase2OfSizeInChunks + RenderCacheEntryReference::logBase2OfCenterSize;
@@ -892,7 +1115,7 @@ public:
         };
 
     private:
-        static constexpr std::size_t sliceCount = 31;
+        static constexpr std::size_t sliceCount = 8191;
         struct Slice final
         {
             std::unordered_map<util::Vector3I32, std::shared_ptr<Entry>> entries;

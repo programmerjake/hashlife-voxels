@@ -109,13 +109,21 @@ std::shared_ptr<graphics::ReadableRenderBuffer> HashlifeWorld::renderRenderCache
         return graphics::EmptyRenderBuffer::get();
     constexpr std::int32_t blockLightingArraySize =
         RenderCacheEntryReference::centerSize + 2; // one extra block on each side
+    constexpr std::int32_t blockArraySize =
+        blockLightingArraySize + 2; // one extra block on each side
     struct State final
     {
         util::Array<util::Array<util::Array<lighting::BlockLighting, blockLightingArraySize>,
                                 blockLightingArraySize>,
                     blockLightingArraySize> blockLightingArray;
+        util::Array<util::Array<util::Array<block::Block, blockArraySize>, blockArraySize>,
+                    blockArraySize> blockArray;
     };
     std::unique_ptr<State> state(new State());
+    renderCacheEntryReference->getBlocks(state->blockArray,
+                                         util::Vector3I32(-2),
+                                         util::Vector3I32(0),
+                                         util::Vector3I32(blockArraySize));
     constexpr std::int32_t blocksSize = 3;
     for(std::int32_t x = 0; x < blockLightingArraySize; x++)
     {
@@ -135,10 +143,12 @@ std::shared_ptr<graphics::ReadableRenderBuffer> HashlifeWorld::renderRenderCache
                     {
                         for(std::int32_t z2 = 0; z2 < blocksSize; z2++)
                         {
-                            auto blockPosition = blockLightingPosition
-                                                 + util::Vector3I32(x2, y2, z2)
-                                                 - util::Vector3I32(1);
-                            auto block = renderCacheEntryReference->get(blockPosition);
+                            auto blockArrayPosition = blockLightingPosition
+                                                      + util::Vector3I32(x2, y2, z2)
+                                                      + util::Vector3I32(1);
+                            auto block =
+                                state->blockArray[blockArrayPosition.x][blockArrayPosition.y]
+                                                 [blockArrayPosition.z];
                             blocks[x2][y2][z2] = {
                                 block::BlockDescriptor::getLightProperties(block.getBlockKind()),
                                 block.getLighting()};
@@ -159,7 +169,7 @@ std::shared_ptr<graphics::ReadableRenderBuffer> HashlifeWorld::renderRenderCache
         {
             for(std::int32_t z = 0; z < RenderCacheEntryReference::centerSize; z++)
             {
-                auto block = renderCacheEntryReference->get(util::Vector3I32(x, y, z));
+                auto block = state->blockArray[x + 2][y + 2][z + 2];
                 if(!block.getBlockKind())
                     continue;
                 auto *blockDescriptor = block::BlockDescriptor::get(block.getBlockKind());
@@ -174,9 +184,12 @@ std::shared_ptr<graphics::ReadableRenderBuffer> HashlifeWorld::renderRenderCache
                     {
                         for(std::int32_t z2 = 0; z2 < blocksSize; z2++)
                         {
-                            blockStepInput.blocks[x2][y2][z2] = renderCacheEntryReference->get(
-                                util::Vector3I32(x, y, z) + util::Vector3I32(x2, y2, z2)
-                                - util::Vector3I32(1));
+                            auto blockArrayPosition = util::Vector3I32(x, y, z)
+                                                      + util::Vector3I32(x2, y2, z2)
+                                                      + util::Vector3I32(1);
+                            blockStepInput.blocks[x2][y2][z2] =
+                                state->blockArray[blockArrayPosition.x][blockArrayPosition.y]
+                                                 [blockArrayPosition.z];
                         }
                     }
                 }

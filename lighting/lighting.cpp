@@ -19,6 +19,7 @@
  *
  */
 #include "lighting.h"
+#include <type_traits>
 
 namespace programmerjake
 {
@@ -48,9 +49,14 @@ float BlockLighting::evalVertex(
 }
 
 BlockLighting::BlockLighting(
-    util::Array<util::Array<util::Array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
+    const util::Array<util::Array<util::Array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> &
+        blocksIn,
     const Lighting::GlobalProperties &globalProperties) noexcept : lightValues()
 {
+    constexpr int blocksSize = 3;
+    util::Array<util::Array<util::Array<std::pair<LightProperties, Lighting>, blocksSize>,
+                            blocksSize>,
+                blocksSize> blocks = blocksIn;
     util::Array<util::Array<util::Array<bool, 3>, 3>, 3> isOpaque, setOpaque;
     for(int x = 0; x < 3; x++)
     {

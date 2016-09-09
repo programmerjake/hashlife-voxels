@@ -52,7 +52,7 @@ int main()
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 30;
+    constexpr std::int32_t ballSize = 100;
     constexpr std::int32_t renderRange = ballSize + 1;
     typedef util::Array<util::Array<util::Array<block::Block, renderRange * 2>, renderRange * 2>,
                         renderRange * 2> BlocksArray;
@@ -63,8 +63,13 @@ int main()
         {
             for(std::int32_t z = -renderRange; z < renderRange; z++)
             {
+                auto position = util::Vector3I32(x, y, z);
                 auto block = block::Block(block::builtin::Air::get()->blockKind);
-                if(x * x + y * y + z * z < ballSize * ballSize)
+                if((position.normSquared() >= ballSize * ballSize
+                    && (y < ballSize / 10
+                        || util::Vector3F(x, 0, z).normSquared() >= ballSize * ballSize))
+                   || (position - util::Vector3I32(ballSize / 2)).normSquared()
+                          < ballSize * ballSize / (4 * 4))
                     block = block::Block(block::builtin::Bedrock::get()->blockKind);
                 (*blocksArray)[x + renderRange][y + renderRange][z + renderRange] = block;
             }
@@ -109,7 +114,7 @@ int main()
     bool generateRenderBuffersDone = false;
     std::list<threading::Thread> generateRenderBuffersThreads;
     const float nearPlane = 0.01f;
-    const float farPlane = 300.0f;
+    const float farPlane = 5 + ballSize * 2;
     world::HashlifeWorld::GPURenderBufferCache gpuRenderBufferCache;
 
     std::mutex mainGameLoopLock;
@@ -217,8 +222,10 @@ int main()
                                     gpuRenderBufferCache);
                                 // sleep until 1/20 of a second has elapsed
                                 // since lastTick
+#if 1
                                 threading::thisThread::sleepUntil(lastTick
                                                                   + std::chrono::milliseconds(50));
+#endif
                                 lockIt.lock();
                             }
                         });
@@ -250,9 +257,7 @@ int main()
                     util::Vector3F(0.5),
                     farPlane,
                     commandBuffer,
-                    graphics::Transform::rotateY(t)
-                        .concat(graphics::Transform::rotateX(t / 4))
-                        .concat(graphics::Transform::translate(0, 0, -2 * ballSize)),
+                    graphics::Transform::rotateY(t / 9).concat(graphics::Transform::rotateX(t / 4)),
                     graphics::Transform::frustum(-nearPlane * scaleX,
                                                  nearPlane * scaleX,
                                                  -nearPlane * scaleY,

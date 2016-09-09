@@ -310,7 +310,8 @@ public:
     {
     }
     BlockLighting(
-        util::Array<util::Array<util::Array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> blocks,
+        const util::Array<util::Array<util::Array<std::pair<LightProperties, Lighting>, 3>, 3>, 3> &
+            blocksIn,
         const Lighting::GlobalProperties &globalProperties) noexcept;
 
 private:
