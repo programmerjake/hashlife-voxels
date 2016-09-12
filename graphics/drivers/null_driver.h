@@ -247,17 +247,16 @@ public:
     {
         return std::make_shared<NullCommandBuffer>();
     }
-    virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
-                     void *renderCallbackArg,
-                     void (*eventCallback)(void *arg, const ui::event::Event &event),
-                     void *eventCallbackArg) override
+    virtual void run(
+        util::FunctionReference<std::shared_ptr<CommandBuffer>()> renderCallback,
+        util::FunctionReference<void(const ui::event::Event &event)> eventCallback) override
     {
         running = true;
         try
         {
             while(true)
             {
-                auto commandBuffer = renderCallback(renderCallbackArg);
+                auto commandBuffer = renderCallback();
                 if(commandBuffer)
                 {
                     constexprAssert(dynamic_cast<const NullCommandBuffer *>(commandBuffer.get()));
@@ -267,7 +266,7 @@ public:
                 auto terminationRequestCount = getTerminationRequestCount();
                 for(std::size_t i = 0; i < terminationRequestCount; i++)
                 {
-                    eventCallback(eventCallbackArg, ui::event::Quit());
+                    eventCallback(ui::event::Quit());
                 }
             }
         }
@@ -281,6 +280,10 @@ public:
     virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept override
     {
         return {256, 256};
+    }
+    virtual void setRelativeMouseMode(bool enabled) override
+    {
+        constexprAssert(running);
     }
 };
 }

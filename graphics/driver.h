@@ -34,6 +34,7 @@
 #include <string>
 #include <tuple>
 #include "../ui/event.h"
+#include "../util/function_reference.h"
 
 namespace programmerjake
 {
@@ -73,30 +74,12 @@ public:
     virtual void setNewImageData(TextureId texture, const std::shared_ptr<const Image> &image) = 0;
     virtual std::shared_ptr<RenderBuffer> makeBuffer(
         const util::EnumArray<std::size_t, RenderLayer> &maximumSizes) = 0;
-    virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
-                     void *renderCallbackArg,
-                     void (*eventCallback)(void *arg, const ui::event::Event &event),
-                     void *eventCallbackArg) = 0;
-    template <typename RenderCallback, typename EventCallback>
-    void run(RenderCallback &&renderCallback, EventCallback &&eventCallback)
-    {
-        run(
-            [](void *arg) -> std::shared_ptr<CommandBuffer>
-            {
-                return std::forward<RenderCallback>(
-                    *static_cast<typename std::remove_reference<RenderCallback>::type *>(arg))();
-            },
-            const_cast<char *>(&reinterpret_cast<const volatile char &>(renderCallback)),
-            [](void *arg, const ui::event::Event &event) -> void
-            {
-                std::forward<EventCallback>(
-                    *static_cast<typename std::remove_reference<EventCallback>::type *>(arg))(
-                    event);
-            },
-            const_cast<char *>(&reinterpret_cast<const volatile char &>(eventCallback)));
-    }
+    virtual void run(
+        util::FunctionReference<std::shared_ptr<CommandBuffer>()> renderCallback,
+        util::FunctionReference<void(const ui::event::Event &event)> eventCallback) = 0;
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() = 0;
     virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept = 0;
+    virtual void setRelativeMouseMode(bool enabled) = 0;
 };
 }
 }

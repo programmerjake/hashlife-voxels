@@ -5,3 +5,5 @@
 /.settings/
 /gmon.out
 /oprofile_data/
+/Debug ThreadSanitizer/
+/Debug AddressSanitizer/

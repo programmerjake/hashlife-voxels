@@ -53,23 +53,12 @@ protected:
     virtual void createGraphicsContext() = 0;
     virtual void destroyGraphicsContext() noexcept = 0;
     SDL_Window *getWindow() const noexcept;
-    void runOnMainThread(void (*fn)(void *arg), void *arg);
-    template <typename Fn>
-    void runOnMainThread(Fn &&fn)
-    {
-        runOnMainThread(
-            [](void *arg)
-            {
-                std::forward<Fn>(*static_cast<typename std::remove_reference<Fn>::type *>(arg))();
-            },
-            const_cast<void *>(static_cast<const volatile void *>(std::addressof(fn))));
-    }
+    void runOnMainThread(util::FunctionReference<void()> fn);
 
 public:
-    virtual void run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
-                     void *renderCallbackArg,
-                     void (*eventCallback)(void *arg, const ui::event::Event &event),
-                     void *eventCallbackArg) override final;
+    virtual void run(
+        util::FunctionReference<std::shared_ptr<CommandBuffer>()> renderCallback,
+        util::FunctionReference<void(const ui::event::Event &event)> eventCallback) override final;
     const std::string &getTitle() const noexcept
     {
         return title;
@@ -85,6 +74,7 @@ public:
     static void initSDL() noexcept;
     virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept override;
     virtual void setGraphicsContextRecreationNeeded() noexcept = 0;
+    virtual void setRelativeMouseMode(bool enabled) override;
 };
 }
 }

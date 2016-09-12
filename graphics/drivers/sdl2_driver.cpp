@@ -47,26 +47,22 @@ struct SDL2Driver::RunningState final
     SDL_Window *window;
     struct ScheduledCallback final
     {
-        void (*fn)(void *arg);
-        void *arg;
+        util::FunctionReference<void()> fn;
         bool done = false;
         std::exception_ptr exception;
-        ScheduledCallback(void (*fn)(void *arg), void *arg) : fn(fn), arg(arg)
+        ScheduledCallback(util::FunctionReference<void()> fn) : fn(fn)
         {
         }
     };
     std::deque<ScheduledCallback *> scheduledCallbacks;
-    std::shared_ptr<CommandBuffer>(*const renderCallback)(void *arg);
-    void *const renderCallbackArg;
-    void (*const eventCallback)(void *arg, const ui::event::Event &event);
-    void *const eventCallbackArg;
+    util::FunctionReference<std::shared_ptr<CommandBuffer>()> renderCallback;
+    util::FunctionReference<void(const ui::event::Event &event)> eventCallback;
     std::atomic_int width{1};
     std::atomic_int height{1};
-    explicit RunningState(SDL2Driver &driver,
-                          std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
-                          void *renderCallbackArg,
-                          void (*eventCallback)(void *arg, const ui::event::Event &event),
-                          void *eventCallbackArg)
+    explicit RunningState(
+        SDL2Driver &driver,
+        util::FunctionReference<std::shared_ptr<CommandBuffer>()> renderCallback,
+        util::FunctionReference<void(const ui::event::Event &event)> eventCallback)
         : driver(driver),
           mutex(),
           cond(),
@@ -75,9 +71,7 @@ struct SDL2Driver::RunningState final
           window(),
           scheduledCallbacks(),
           renderCallback(renderCallback),
-          renderCallbackArg(renderCallbackArg),
-          eventCallback(eventCallback),
-          eventCallbackArg(eventCallbackArg)
+          eventCallback(eventCallback)
     {
     }
     static ui::event::PhysicalKeyCode translatePhysicalKeyCode(SDL_Scancode code) noexcept
@@ -1084,22 +1078,22 @@ struct SDL2Driver::RunningState final
         {
         case SDL_APP_DIDENTERBACKGROUND:
             driver.setGraphicsContextRecreationNeeded();
-            eventCallback(eventCallbackArg, ui::event::AppDidEnterBackground());
+            eventCallback(ui::event::AppDidEnterBackground());
             return;
         case SDL_APP_DIDENTERFOREGROUND:
-            eventCallback(eventCallbackArg, ui::event::AppDidEnterForegound());
+            eventCallback(ui::event::AppDidEnterForegound());
             return;
         case SDL_APP_LOWMEMORY:
-            eventCallback(eventCallbackArg, ui::event::AppLowMemory());
+            eventCallback(ui::event::AppLowMemory());
             return;
         case SDL_APP_TERMINATING:
-            eventCallback(eventCallbackArg, ui::event::AppTerminating());
+            eventCallback(ui::event::AppTerminating());
             return;
         case SDL_APP_WILLENTERBACKGROUND:
-            eventCallback(eventCallbackArg, ui::event::AppWillEnterBackground());
+            eventCallback(ui::event::AppWillEnterBackground());
             return;
         case SDL_APP_WILLENTERFOREGROUND:
-            eventCallback(eventCallbackArg, ui::event::AppWillEnterForegound());
+            eventCallback(ui::event::AppWillEnterForegound());
             return;
         case SDL_AUDIODEVICEADDED:
             // TODO: finish
@@ -1108,7 +1102,7 @@ struct SDL2Driver::RunningState final
             // TODO: finish
             return;
         case SDL_CLIPBOARDUPDATE:
-            eventCallback(eventCallbackArg, ui::event::ClipboardUpdate());
+            eventCallback(ui::event::ClipboardUpdate());
             return;
         case SDL_CONTROLLERAXISMOTION:
             // TODO: finish
@@ -1135,34 +1129,31 @@ struct SDL2Driver::RunningState final
             // TODO: finish
             return;
         case SDL_FINGERDOWN:
-            eventCallback(eventCallbackArg,
-                          ui::event::FingerDown(
-                              ui::event::Finger::Id(event.tfinger.touchId, event.tfinger.fingerId),
-                              event.tfinger.x,
-                              event.tfinger.y,
-                              event.tfinger.dx,
-                              event.tfinger.dy,
-                              event.tfinger.pressure));
+            eventCallback(ui::event::FingerDown(
+                ui::event::Finger::Id(event.tfinger.touchId, event.tfinger.fingerId),
+                event.tfinger.x,
+                event.tfinger.y,
+                event.tfinger.dx,
+                event.tfinger.dy,
+                event.tfinger.pressure));
             return;
         case SDL_FINGERMOTION:
-            eventCallback(eventCallbackArg,
-                          ui::event::FingerMove(
-                              ui::event::Finger::Id(event.tfinger.touchId, event.tfinger.fingerId),
-                              event.tfinger.x,
-                              event.tfinger.y,
-                              event.tfinger.dx,
-                              event.tfinger.dy,
-                              event.tfinger.pressure));
+            eventCallback(ui::event::FingerMove(
+                ui::event::Finger::Id(event.tfinger.touchId, event.tfinger.fingerId),
+                event.tfinger.x,
+                event.tfinger.y,
+                event.tfinger.dx,
+                event.tfinger.dy,
+                event.tfinger.pressure));
             return;
         case SDL_FINGERUP:
-            eventCallback(eventCallbackArg,
-                          ui::event::FingerUp(
-                              ui::event::Finger::Id(event.tfinger.touchId, event.tfinger.fingerId),
-                              event.tfinger.x,
-                              event.tfinger.y,
-                              event.tfinger.dx,
-                              event.tfinger.dy,
-                              event.tfinger.pressure));
+            eventCallback(ui::event::FingerUp(
+                ui::event::Finger::Id(event.tfinger.touchId, event.tfinger.fingerId),
+                event.tfinger.x,
+                event.tfinger.y,
+                event.tfinger.dx,
+                event.tfinger.dy,
+                event.tfinger.pressure));
             return;
         case SDL_JOYAXISMOTION:
             // TODO: finish
@@ -1186,8 +1177,7 @@ struct SDL2Driver::RunningState final
             // TODO: finish
             return;
         case SDL_KEYDOWN:
-            eventCallback(eventCallbackArg,
-                          ui::event::KeyDown(event.key.repeat,
+            eventCallback(ui::event::KeyDown(event.key.repeat,
                                              translatePhysicalKeyCode(event.key.keysym.scancode),
                                              translateVirtualKeyCode(event.key.keysym.sym),
                                              translateKeyModifiers(event.key.keysym.mod)));
@@ -1196,18 +1186,16 @@ struct SDL2Driver::RunningState final
             // TODO: finish
             return;
         case SDL_KEYUP:
-            eventCallback(eventCallbackArg,
-                          ui::event::KeyUp(translatePhysicalKeyCode(event.key.keysym.scancode),
+            eventCallback(ui::event::KeyUp(translatePhysicalKeyCode(event.key.keysym.scancode),
                                            translateVirtualKeyCode(event.key.keysym.sym),
                                            translateKeyModifiers(event.key.keysym.mod)));
             return;
         case SDL_MOUSEBUTTONDOWN:
             if(event.button.which != SDL_TOUCH_MOUSEID)
             {
-                ui::event::Mouse::Button button;
+                ui::event::Mouse::Button button{};
                 if(translateMouseButton(event.button.button, button))
-                    eventCallback(eventCallbackArg,
-                                  ui::event::MouseButtonDown(event.button.which,
+                    eventCallback(ui::event::MouseButtonDown(event.button.which,
                                                              event.button.x,
                                                              event.button.y,
                                                              button,
@@ -1217,10 +1205,9 @@ struct SDL2Driver::RunningState final
         case SDL_MOUSEBUTTONUP:
             if(event.button.which != SDL_TOUCH_MOUSEID)
             {
-                ui::event::Mouse::Button button;
+                ui::event::Mouse::Button button{};
                 if(translateMouseButton(event.button.button, button))
-                    eventCallback(eventCallbackArg,
-                                  ui::event::MouseButtonUp(event.button.which,
+                    eventCallback(ui::event::MouseButtonUp(event.button.which,
                                                            event.button.x,
                                                            event.button.y,
                                                            button,
@@ -1257,8 +1244,7 @@ struct SDL2Driver::RunningState final
                     if(event.motion.state & mask)
                         buttonStates[button] = true;
                 }
-                eventCallback(eventCallbackArg,
-                              ui::event::MouseMove(event.motion.which,
+                eventCallback(ui::event::MouseMove(event.motion.which,
                                                    event.motion.x,
                                                    event.motion.y,
                                                    event.motion.xrel,
@@ -1278,13 +1264,13 @@ struct SDL2Driver::RunningState final
                     y = -y;
                 }
 #endif
-                eventCallback(eventCallbackArg, ui::event::MouseWheel(event.wheel.which, x, y));
+                eventCallback(ui::event::MouseWheel(event.wheel.which, x, y));
             }
             return;
         case SDL_MULTIGESTURE:
             return;
         case SDL_QUIT:
-            eventCallback(eventCallbackArg, ui::event::Quit());
+            eventCallback(ui::event::Quit());
             return;
         case SDL_RENDER_DEVICE_RESET:
         case SDL_RENDER_TARGETS_RESET:
@@ -1294,59 +1280,55 @@ struct SDL2Driver::RunningState final
             return;
         case SDL_TEXTEDITING:
             eventCallback(
-                eventCallbackArg,
                 ui::event::TextEditing(event.edit.text, event.edit.start, event.edit.length));
             return;
         case SDL_TEXTINPUT:
-            eventCallback(eventCallbackArg, ui::event::TextInput(event.text.text));
+            eventCallback(ui::event::TextInput(event.text.text));
             return;
         case SDL_WINDOWEVENT:
         {
             switch(event.window.event)
             {
             case SDL_WINDOWEVENT_SHOWN:
-                eventCallback(eventCallbackArg, ui::event::WindowShown());
+                eventCallback(ui::event::WindowShown());
                 return;
             case SDL_WINDOWEVENT_HIDDEN:
-                eventCallback(eventCallbackArg, ui::event::WindowHidden());
+                eventCallback(ui::event::WindowHidden());
                 return;
             case SDL_WINDOWEVENT_EXPOSED:
                 return;
             case SDL_WINDOWEVENT_MOVED:
-                eventCallback(eventCallbackArg,
-                              ui::event::WindowMoved(event.window.data1, event.window.data2));
+                eventCallback(ui::event::WindowMoved(event.window.data1, event.window.data2));
                 return;
             case SDL_WINDOWEVENT_RESIZED:
-                eventCallback(eventCallbackArg,
-                              ui::event::WindowResized(event.window.data1, event.window.data2));
+                eventCallback(ui::event::WindowResized(event.window.data1, event.window.data2));
                 return;
             case SDL_WINDOWEVENT_SIZE_CHANGED:
-                eventCallback(eventCallbackArg,
-                              ui::event::WindowSizeChanged(event.window.data1, event.window.data2));
+                eventCallback(ui::event::WindowSizeChanged(event.window.data1, event.window.data2));
                 return;
             case SDL_WINDOWEVENT_MINIMIZED:
-                eventCallback(eventCallbackArg, ui::event::WindowMinimized());
+                eventCallback(ui::event::WindowMinimized());
                 return;
             case SDL_WINDOWEVENT_MAXIMIZED:
-                eventCallback(eventCallbackArg, ui::event::WindowMaximized());
+                eventCallback(ui::event::WindowMaximized());
                 return;
             case SDL_WINDOWEVENT_RESTORED:
-                eventCallback(eventCallbackArg, ui::event::WindowRestored());
+                eventCallback(ui::event::WindowRestored());
                 return;
             case SDL_WINDOWEVENT_ENTER:
-                eventCallback(eventCallbackArg, ui::event::MouseEnter());
+                eventCallback(ui::event::MouseEnter());
                 return;
             case SDL_WINDOWEVENT_LEAVE:
-                eventCallback(eventCallbackArg, ui::event::MouseLeave());
+                eventCallback(ui::event::MouseLeave());
                 return;
             case SDL_WINDOWEVENT_FOCUS_GAINED:
-                eventCallback(eventCallbackArg, ui::event::KeyFocusGained());
+                eventCallback(ui::event::KeyFocusGained());
                 return;
             case SDL_WINDOWEVENT_FOCUS_LOST:
-                eventCallback(eventCallbackArg, ui::event::KeyFocusLost());
+                eventCallback(ui::event::KeyFocusLost());
                 return;
             case SDL_WINDOWEVENT_CLOSE:
-                eventCallback(eventCallbackArg, ui::event::WindowClose());
+                eventCallback(ui::event::WindowClose());
                 return;
             case SDL_WINDOWEVENT_NONE:
                 break;
@@ -1386,7 +1368,7 @@ struct SDL2Driver::RunningState final
             while(!done)
             {
                 lockIt.unlock();
-                auto commandBuffer = renderCallback(renderCallbackArg);
+                auto commandBuffer = renderCallback();
                 bool didRender = false;
                 if(commandBuffer)
                 {
@@ -1488,7 +1470,7 @@ struct SDL2Driver::RunningState final
                     lockIt.unlock();
                     try
                     {
-                        callback->fn(callback->arg);
+                        callback->fn();
                     }
                     catch(...)
                     {
@@ -1555,16 +1537,16 @@ SDL_Window *SDL2Driver::getWindow() const noexcept
     return runningState->window;
 }
 
-void SDL2Driver::runOnMainThread(void (*fn)(void *arg), void *arg)
+void SDL2Driver::runOnMainThread(util::FunctionReference<void()> fn)
 {
     constexprAssert(runningState != nullptr);
     if(threading::thisThread::getId() == runningState->mainThreadId)
     {
-        fn(arg);
+        fn();
     }
     else
     {
-        RunningState::ScheduledCallback callback(fn, arg);
+        RunningState::ScheduledCallback callback(fn);
         std::unique_lock<std::mutex> lockIt(runningState->mutex);
         runningState->scheduledCallbacks.push_back(&callback);
         runningState->cond.notify_all();
@@ -1580,14 +1562,11 @@ void SDL2Driver::runOnMainThread(void (*fn)(void *arg), void *arg)
     }
 }
 
-void SDL2Driver::run(std::shared_ptr<CommandBuffer>(*renderCallback)(void *arg),
-                     void *renderCallbackArg,
-                     void (*eventCallback)(void *arg, const ui::event::Event &event),
-                     void *eventCallbackArg)
+void SDL2Driver::run(util::FunctionReference<std::shared_ptr<CommandBuffer>()> renderCallback,
+                     util::FunctionReference<void(const ui::event::Event &event)> eventCallback)
 {
     constexprAssert(runningState == nullptr);
-    RunningState runningStateObject(
-        *this, renderCallback, renderCallbackArg, eventCallback, eventCallbackArg);
+    RunningState runningStateObject(*this, renderCallback, eventCallback);
     runningState = &runningStateObject;
     try
     {
@@ -1614,6 +1593,15 @@ std::pair<std::size_t, std::size_t> SDL2Driver::getOutputSize() const noexcept
     int height = runningState->height.load(std::memory_order_acquire);
     int width = runningState->width.load(std::memory_order_relaxed);
     return {width, height};
+}
+
+void SDL2Driver::setRelativeMouseMode(bool enabled)
+{
+    constexprAssert(runningState);
+    runOnMainThread([enabled]()
+                    {
+                        SDL_SetRelativeMouseMode(enabled ? SDL_TRUE : SDL_FALSE);
+                    });
 }
 }
 }

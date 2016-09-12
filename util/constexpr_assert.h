@@ -42,11 +42,12 @@ struct ConstexprAssertFailed final
 #ifdef NDEBUG
 #define constexprAssert(v) (static_cast<void>(sizeof((v), 0)))
 #else
-#define constexprAssert(v)                                                                      \
-    (static_cast<void>((v) ? 0 : throw ::programmerjake::voxels::util::ConstexprAssertFailed([] \
-                                                                                             {  \
-        assert(!#v);                                                                            \
-                                                                                             })))
+#define constexprAssert(v)                                                            \
+    ((v) ? static_cast<void>(0) :                                                     \
+           static_cast<void>(::programmerjake::voxels::util::ConstexprAssertFailed([] \
+                                                                                   {  \
+        assert(!#v);                                                                  \
+                                                                                   })))
 #endif
 }
 }

@@ -217,6 +217,26 @@ public:
     HashlifeNodeBase *duplicate() const &;
     HashlifeNodeBase *duplicate() && ;
     static void free(HashlifeNodeBase *node) noexcept;
+    friend constexpr HashlifeLeafNode *getAsLeaf(HashlifeNodeBase *node) noexcept;
+    friend constexpr HashlifeNonleafNode *getAsNonleaf(HashlifeNodeBase *node) noexcept;
+    friend constexpr const HashlifeLeafNode *getAsLeaf(const HashlifeNodeBase *node) noexcept;
+    friend constexpr const HashlifeNonleafNode *getAsNonleaf(const HashlifeNodeBase *node) noexcept;
+    friend constexpr HashlifeLeafNode &getAsLeaf(HashlifeNodeBase &node) noexcept
+    {
+        return *getAsLeaf(&node);
+    }
+    friend constexpr HashlifeNonleafNode &getAsNonleaf(HashlifeNodeBase &node) noexcept
+    {
+        return *getAsNonleaf(&node);
+    }
+    friend constexpr const HashlifeLeafNode &getAsLeaf(const HashlifeNodeBase &node) noexcept
+    {
+        return *getAsLeaf(&node);
+    }
+    friend constexpr const HashlifeNonleafNode &getAsNonleaf(const HashlifeNodeBase &node) noexcept
+    {
+        return *getAsNonleaf(&node);
+    }
 
 private:
     constexpr explicit HashlifeNodeBase(LevelType level, const block::BlockSummary &blockSummary)
@@ -300,34 +320,6 @@ public:
     {
         static_assert(levelSize == 2, "");
     }
-    HashlifeNonleafNode(HashlifeNodeBase *nxnynz,
-                        HashlifeNodeBase *nxnypz,
-                        HashlifeNodeBase *nxpynz,
-                        HashlifeNodeBase *nxpypz,
-                        HashlifeNodeBase *pxnynz,
-                        HashlifeNodeBase *pxnypz,
-                        HashlifeNodeBase *pxpynz,
-                        HashlifeNodeBase *pxpypz,
-                        FutureState futureState)
-        : HashlifeNodeBase((constexprAssert(nxnynz), nxnynz->level + 1),
-                           nxnynz->blockSummary + nxnypz->blockSummary + nxpynz->blockSummary
-                               + nxpypz->blockSummary + pxnynz->blockSummary + pxnypz->blockSummary
-                               + pxpynz->blockSummary + pxpypz->blockSummary),
-          childNodes{
-              (constexprAssert(nxnynz && nxnynz->level + 1 == level), nxnynz),
-              (constexprAssert(nxnypz && nxnypz->level + 1 == level), nxnypz),
-              (constexprAssert(nxpynz && nxpynz->level + 1 == level), nxpynz),
-              (constexprAssert(nxpypz && nxpypz->level + 1 == level), nxpypz),
-              (constexprAssert(pxnynz && pxnynz->level + 1 == level), pxnynz),
-              (constexprAssert(pxnypz && pxnypz->level + 1 == level), pxnypz),
-              (constexprAssert(pxpynz && pxpynz->level + 1 == level), pxpynz),
-              (constexprAssert(pxpypz && pxpypz->level + 1 == level), pxpypz),
-          },
-          futureState((constexprAssert(futureState.node && futureState.node->level + 1 == level),
-                       std::move(futureState)))
-    {
-        static_assert(levelSize == 2, "");
-    }
     constexpr explicit HashlifeNonleafNode(const ChildNodesArray &childNodes)
         : HashlifeNonleafNode(childNodes[0][0][0],
                               childNodes[0][0][1],
@@ -337,19 +329,6 @@ public:
                               childNodes[1][0][1],
                               childNodes[1][1][0],
                               childNodes[1][1][1])
-    {
-        static_assert(levelSize == 2, "");
-    }
-    HashlifeNonleafNode(const ChildNodesArray &childNodes, FutureState futureState)
-        : HashlifeNonleafNode(childNodes[0][0][0],
-                              childNodes[0][0][1],
-                              childNodes[0][1][0],
-                              childNodes[0][1][1],
-                              childNodes[1][0][0],
-                              childNodes[1][0][1],
-                              childNodes[1][1][0],
-                              childNodes[1][1][1],
-                              std::move(futureState))
     {
         static_assert(levelSize == 2, "");
     }
@@ -470,10 +449,30 @@ public:
     }
 };
 
+constexpr HashlifeLeafNode *getAsLeaf(HashlifeNodeBase *node) noexcept
+{
+    return (constexprAssert(node->isLeaf()), static_cast<HashlifeLeafNode *>(node));
+}
+
+constexpr HashlifeNonleafNode *getAsNonleaf(HashlifeNodeBase *node) noexcept
+{
+    return (constexprAssert(!node->isLeaf()), static_cast<HashlifeNonleafNode *>(node));
+}
+
+constexpr const HashlifeLeafNode *getAsLeaf(const HashlifeNodeBase *node) noexcept
+{
+    return (constexprAssert(node->isLeaf()), static_cast<const HashlifeLeafNode *>(node));
+}
+
+constexpr const HashlifeNonleafNode *getAsNonleaf(const HashlifeNodeBase *node) noexcept
+{
+    return (constexprAssert(!node->isLeaf()), static_cast<const HashlifeNonleafNode *>(node));
+}
+
 constexpr block::Block HashlifeNodeBase::get(util::Vector3I32 position) const
 {
-    return isLeaf() ? static_cast<const HashlifeLeafNode *>(this)->getBlock(getIndex(position)) :
-                      static_cast<const HashlifeNonleafNode *>(this)
+    return isLeaf() ? getAsLeaf(this)->getBlock(getIndex(position)) :
+                      getAsNonleaf(this)
                           ->getChildNode(getIndex(position))
                           ->get(getChildPosition(position));
 }
@@ -482,42 +481,39 @@ constexpr const HashlifeNodeBase *HashlifeNodeBase::get(util::Vector3I32 positio
                                                         LevelType returnedLevel) const
 {
     return (constexprAssert(level >= returnedLevel),
-            level == returnedLevel ? this : static_cast<const HashlifeNonleafNode *>(this)
+            level == returnedLevel ? this : getAsNonleaf(this)
                                                 ->getChildNode(getIndex(position))
                                                 ->get(getChildPosition(position), returnedLevel));
 }
 
 constexpr bool HashlifeNodeBase::operator==(const HashlifeNodeBase &rt) const
 {
-    return level == rt.level && (isLeaf() ?
-                                     static_cast<const HashlifeLeafNode *>(this)->operator==(
-                                         static_cast<const HashlifeLeafNode &>(rt)) :
-                                     static_cast<const HashlifeNonleafNode *>(this)->operator==(
-                                         static_cast<const HashlifeNonleafNode &>(rt)));
+    return level == rt.level && (isLeaf() ? getAsLeaf(this)->operator==(getAsLeaf(rt)) :
+                                            getAsNonleaf(this)->operator==(getAsNonleaf(rt)));
 }
 
 inline std::size_t HashlifeNodeBase::hash() const
 {
     if(isLeaf())
-        return static_cast<const HashlifeLeafNode *>(this)->hash();
+        return getAsLeaf(this)->hash();
     else
-        return static_cast<const HashlifeNonleafNode *>(this)->hash();
+        return getAsNonleaf(this)->hash();
 }
 
 inline HashlifeNodeBase *HashlifeNodeBase::duplicate() const &
 {
     if(isLeaf())
-        return new HashlifeLeafNode(*static_cast<const HashlifeLeafNode *>(this));
+        return new HashlifeLeafNode(*getAsLeaf(this));
     else
-        return new HashlifeNonleafNode(*static_cast<const HashlifeNonleafNode *>(this));
+        return new HashlifeNonleafNode(*getAsNonleaf(this));
 }
 
 inline HashlifeNodeBase *HashlifeNodeBase::duplicate() &&
 {
     if(isLeaf())
-        return new HashlifeLeafNode(std::move(*static_cast<HashlifeLeafNode *>(this)));
+        return new HashlifeLeafNode(std::move(*getAsLeaf(this)));
     else
-        return new HashlifeNonleafNode(std::move(*static_cast<HashlifeNonleafNode *>(this)));
+        return new HashlifeNonleafNode(std::move(*getAsNonleaf(this)));
 }
 
 inline void HashlifeNodeBase::free(HashlifeNodeBase *node) noexcept
@@ -526,11 +522,11 @@ inline void HashlifeNodeBase::free(HashlifeNodeBase *node) noexcept
     {
         if(node->isLeaf())
         {
-            delete static_cast<HashlifeLeafNode *>(node);
+            delete getAsLeaf(node);
         }
         else
         {
-            delete static_cast<HashlifeNonleafNode *>(node);
+            delete getAsNonleaf(node);
         }
     }
 }

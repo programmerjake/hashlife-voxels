@@ -54,34 +54,79 @@ int main()
     auto theWorld = world::HashlifeWorld::make();
     constexpr std::int32_t ballSize = 100;
     constexpr std::int32_t renderRange = ballSize + 1;
-    typedef util::Array<util::Array<util::Array<block::Block, renderRange * 2>, renderRange * 2>,
-                        renderRange * 2> BlocksArray;
-    std::unique_ptr<BlocksArray> blocksArray(new BlocksArray);
-    for(std::int32_t x = -renderRange; x < renderRange; x++)
+    struct DeferredBlocksArray
     {
-        for(std::int32_t y = -renderRange; y < renderRange; y++)
+        block::Block getBlock(util::Vector3I32 position)
         {
-            for(std::int32_t z = -renderRange; z < renderRange; z++)
-            {
-                auto position = util::Vector3I32(x, y, z);
-                auto block = block::Block(block::builtin::Air::get()->blockKind);
-                if((position.normSquared() >= ballSize * ballSize
-                    && (y < ballSize / 10
-                        || util::Vector3F(x, 0, z).normSquared() >= ballSize * ballSize))
-                   || (position - util::Vector3I32(ballSize / 2)).normSquared()
-                          < ballSize * ballSize / (4 * 4))
-                    block = block::Block(block::builtin::Bedrock::get()->blockKind);
-                (*blocksArray)[x + renderRange][y + renderRange][z + renderRange] = block;
-            }
+            position -= util::Vector3I32(renderRange);
+            if((position.normSquared() >= ballSize * ballSize
+                && (position.y < (position.x > 0 ? 0 : ballSize * 3 / 4)
+                    || util::Vector3F(position.x, 0, position.z).normSquared() >= ballSize
+                                                                                      * ballSize))
+               || ((position - util::Vector3I32(ballSize / 2)).normSquared() < ballSize * ballSize
+                                                                                   / (4 * 4)
+                   && (position.x % 32 != 0 || position.z % 32 != 0)))
+                return block::Block(block::builtin::Bedrock::get()->blockKind);
+            return block::Block(block::builtin::Air::get()->blockKind,
+                                lighting::Lighting::makeSkyLighting());
         }
-    }
-    theWorld->setBlocks(*blocksArray,
+        constexpr std::size_t size() const noexcept
+        {
+            return renderRange * 2;
+        }
+        struct IndexHelper2
+        {
+            DeferredBlocksArray &deferredBlocksArray;
+            std::int32_t x, y;
+            constexpr IndexHelper2(DeferredBlocksArray &deferredBlocksArray,
+                                   std::int32_t x,
+                                   std::int32_t y)
+                : deferredBlocksArray(deferredBlocksArray), x(x), y(y)
+            {
+            }
+            block::Block operator[](std::int32_t z)
+            {
+                return deferredBlocksArray.getBlock({x, y, z});
+            }
+            constexpr std::size_t size() const noexcept
+            {
+                return renderRange * 2;
+            }
+        };
+        struct IndexHelper1
+        {
+            DeferredBlocksArray &deferredBlocksArray;
+            std::int32_t x;
+            constexpr IndexHelper1(DeferredBlocksArray &deferredBlocksArray, std::int32_t x)
+                : deferredBlocksArray(deferredBlocksArray), x(x)
+            {
+            }
+            IndexHelper2 operator[](std::int32_t y)
+            {
+                return IndexHelper2(deferredBlocksArray, x, y);
+            }
+            constexpr std::size_t size() const noexcept
+            {
+                return renderRange * 2;
+            }
+        };
+        IndexHelper1 operator[](std::int32_t x)
+        {
+            return IndexHelper1(*this, x);
+        }
+    };
+    theWorld->setBlocks(DeferredBlocksArray(),
                         util::Vector3I32(-renderRange),
                         util::Vector3I32(0),
                         util::Vector3I32(renderRange * 2));
-    blocksArray.reset();
     const block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
         lighting::Lighting::maxLight, world::Dimension::overworld()));
+#if 0
+    for(std::size_t i = 0; i < ballSize; i++)
+    {
+        theWorld->stepAndCollectGarbage(blockStepGlobalState);
+    }
+#endif
     struct GenerateRenderBuffersHasher
     {
         std::size_t operator()(
@@ -114,13 +159,26 @@ int main()
     bool generateRenderBuffersDone = false;
     std::list<threading::Thread> generateRenderBuffersThreads;
     const float nearPlane = 0.01f;
-    const float farPlane = 5 + ballSize * 2;
+    const float farPlane = 15 + ballSize * 2;
     world::HashlifeWorld::GPURenderBufferCache gpuRenderBufferCache;
+    util::Vector3F playerPosition(0.5f);
+    float viewPhi = 0;
+    float viewTheta = 0;
+    float deltaViewPhi = 0;
+    float deltaViewTheta = 0;
+    bool keyWPressed = false;
+    bool keyAPressed = false;
+    bool keySPressed = false;
+    bool keyDPressed = false;
+    bool keySpacePressed = false;
+    bool keyLeftShiftPressed = false;
+    bool keyRightShiftPressed = false;
 
     std::mutex mainGameLoopLock;
     std::condition_variable mainGameLoopCond;
     bool mainGameLoopDone = false;
     bool mainGameLoopPaused = false;
+    util::Vector3F mainGameLoopPlayerPosition = playerPosition;
     threading::Thread mainGameLoopThread;
     try
     {
@@ -128,11 +186,15 @@ int main()
         auto lastFPSReportTime = std::chrono::steady_clock::now();
         std::size_t tickCount = 0;
         auto lastTPSReportTime = lastFPSReportTime;
+        auto lastFrameTime = lastFPSReportTime;
         graphics::Driver::get().run(
             [&]() -> std::shared_ptr<graphics::CommandBuffer>
             {
                 if(!mainGameLoopThread.joinable())
                 {
+#if 0
+                    graphics::Driver::get().setRelativeMouseMode(true);
+#endif
                     std::size_t totalThreadCount = threading::Thread::hardwareConcurrency();
                     if(totalThreadCount < 3)
                         totalThreadCount = 3;
@@ -172,6 +234,7 @@ int main()
                                     mainGameLoopCond.wait(lockIt);
                                     continue;
                                 }
+                                auto playerPosition = mainGameLoopPlayerPosition;
                                 lockIt.unlock();
                                 auto now = std::chrono::steady_clock::now();
                                 tickCount++;
@@ -216,7 +279,7 @@ int main()
                                         entry->gpuRenderBuffer =
                                             entry->sourceRenderBuffers.render();
                                     },
-                                    util::Vector3F(0.5),
+                                    playerPosition,
                                     farPlane,
                                     blockStepGlobalState,
                                     gpuRenderBufferCache);
@@ -231,6 +294,11 @@ int main()
                         });
                 }
                 auto now = std::chrono::steady_clock::now();
+                auto deltaTime = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                     now - lastFrameTime).count();
+                lastFrameTime = now;
+                if(deltaTime > 0.1f)
+                    deltaTime = 0.1f;
                 frameCount++;
                 if(now - lastFPSReportTime >= std::chrono::seconds(5))
                 {
@@ -240,8 +308,30 @@ int main()
                     frameCount = 0;
                     logging::log(logging::Level::Info, "main", ss.str());
                 }
-                auto t = std::chrono::duration_cast<std::chrono::duration<double>>(
-                             now.time_since_epoch()).count();
+                deltaViewPhi *= 0.5f;
+                viewPhi += deltaViewPhi;
+                if(viewPhi < -M_PI_2)
+                    viewPhi = -M_PI_2;
+                else if(!(viewPhi < M_PI_2)) // handle NaN
+                    viewPhi = M_PI_2;
+                deltaViewTheta *= 0.5f;
+                viewTheta += deltaViewTheta;
+                util::Vector3F playerRelativeMoveDirection(0);
+                if(keyWPressed)
+                    playerRelativeMoveDirection -= util::Vector3F(0, 0, 1);
+                if(keyAPressed)
+                    playerRelativeMoveDirection -= util::Vector3F(1, 0, 0);
+                if(keySPressed)
+                    playerRelativeMoveDirection += util::Vector3F(0, 0, 1);
+                if(keyDPressed)
+                    playerRelativeMoveDirection += util::Vector3F(1, 0, 0);
+                if(keyLeftShiftPressed || keyRightShiftPressed)
+                    playerRelativeMoveDirection -= util::Vector3F(0, 1, 0);
+                if(keySpacePressed)
+                    playerRelativeMoveDirection += util::Vector3F(0, 1, 0);
+                playerPosition += transform(
+                    graphics::Transform::rotateY(viewTheta),
+                    util::Vector3F(deltaTime * ballSize / 10) * playerRelativeMoveDirection);
                 auto outputSize = graphics::Driver::get().getOutputSize();
                 float scaleX = std::get<0>(outputSize);
                 float scaleY = std::get<1>(outputSize);
@@ -252,22 +342,22 @@ int main()
                 if(scaleY < 1)
                     scaleY = 1;
                 auto commandBuffer = graphics::Driver::get().makeCommandBuffer();
-                commandBuffer->appendClearCommand(true, true, graphics::rgbF(0, 0, 0));
-                gpuRenderBufferCache.renderView(
-                    util::Vector3F(0.5),
-                    farPlane,
-                    commandBuffer,
-                    graphics::Transform::rotateY(t / 9).concat(graphics::Transform::rotateX(t / 4)),
-                    graphics::Transform::frustum(-nearPlane * scaleX,
-                                                 nearPlane * scaleX,
-                                                 -nearPlane * scaleY,
-                                                 nearPlane * scaleY,
-                                                 nearPlane,
-                                                 farPlane));
+                commandBuffer->appendClearCommand(true, true, graphics::rgbF(0.5f, 0.5f, 1));
+                gpuRenderBufferCache.renderView(playerPosition,
+                                                farPlane,
+                                                commandBuffer,
+                                                graphics::Transform::rotateY(-viewTheta)
+                                                    .concat(graphics::Transform::rotateX(-viewPhi)),
+                                                graphics::Transform::frustum(-nearPlane * scaleX,
+                                                                             nearPlane * scaleX,
+                                                                             -nearPlane * scaleY,
+                                                                             nearPlane * scaleY,
+                                                                             nearPlane,
+                                                                             farPlane));
                 commandBuffer->appendPresentCommandAndFinish();
                 return commandBuffer;
             },
-            [](const ui::event::Event &event)
+            [&](const ui::event::Event &event)
             {
                 if(dynamic_cast<const ui::event::Quit *>(&event))
                     throw QuitException();
@@ -275,9 +365,46 @@ int main()
                 {
                     if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Escape)
                         throw QuitException();
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Space)
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::R)
                         dynamic_cast<graphics::drivers::SDL2Driver &>(graphics::Driver::get())
                             .setGraphicsContextRecreationNeeded();
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::W)
+                        keyWPressed = true;
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::A)
+                        keyAPressed = true;
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::S)
+                        keySPressed = true;
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::D)
+                        keyDPressed = true;
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::LShift)
+                        keyLeftShiftPressed = true;
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::RShift)
+                        keyRightShiftPressed = true;
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Space)
+                        keySpacePressed = true;
+                }
+                if(auto keyUp = dynamic_cast<const ui::event::KeyUp *>(&event))
+                {
+                    if(keyUp->physicalCode == ui::event::PhysicalKeyCode::W)
+                        keyWPressed = false;
+                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::A)
+                        keyAPressed = false;
+                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::S)
+                        keySPressed = false;
+                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::D)
+                        keyDPressed = false;
+                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::LShift)
+                        keyLeftShiftPressed = false;
+                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::RShift)
+                        keyRightShiftPressed = false;
+                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::Space)
+                        keySpacePressed = false;
+                }
+                if(auto mouseMove = dynamic_cast<const ui::event::MouseMove *>(&event))
+                {
+                    auto outputSize = graphics::Driver::get().getOutputSize();
+                    deltaViewTheta -= static_cast<float>(mouseMove->dx) / std::get<0>(outputSize);
+                    deltaViewPhi -= static_cast<float>(mouseMove->dy) / std::get<1>(outputSize);
                 }
             });
     }
