@@ -52,7 +52,7 @@ int main()
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 100;
+    constexpr std::int32_t ballSize = 25;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {
@@ -192,12 +192,12 @@ int main()
             {
                 if(!mainGameLoopThread.joinable())
                 {
-#if 0
+#if 1
                     graphics::Driver::get().setRelativeMouseMode(true);
 #endif
                     std::size_t totalThreadCount = threading::Thread::hardwareConcurrency();
-                    if(totalThreadCount < 3)
-                        totalThreadCount = 3;
+                    if(totalThreadCount < 4)
+                        totalThreadCount = 4;
                     for(std::size_t i = totalThreadCount - 2; i > 0; i--)
                     {
                         generateRenderBuffersThreads.push_back(threading::Thread(

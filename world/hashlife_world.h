@@ -72,13 +72,18 @@ private:
         static constexpr std::int32_t centerSize = HashlifeNodeBase::getSize(renderCacheNodeLevel);
         static constexpr int logBase2OfCenterSize =
             HashlifeNodeBase::getLogBase2OfSize(renderCacheNodeLevel);
-        util::Array<HashlifeNodeBase *, nodeArraySize * nodeArraySize * nodeArraySize> nodes;
-        HashlifeNodeBase *&getNode(std::size_t x, std::size_t y, std::size_t z) noexcept
+        util::Array<std::shared_ptr<const HashlifeNodeBase>,
+                    nodeArraySize * nodeArraySize * nodeArraySize> nodes;
+        std::shared_ptr<const HashlifeNodeBase> &getNode(std::size_t x,
+                                                         std::size_t y,
+                                                         std::size_t z) noexcept
         {
             constexprAssert(x < nodeArraySize && y < nodeArraySize && z < nodeArraySize);
             return nodes[nodeArraySize * (nodeArraySize * x + y) + z];
         }
-        HashlifeNodeBase *const &getNode(std::size_t x, std::size_t y, std::size_t z) const noexcept
+        const std::shared_ptr<const HashlifeNodeBase> &getNode(std::size_t x,
+                                                               std::size_t y,
+                                                               std::size_t z) const noexcept
         {
             constexprAssert(x < nodeArraySize && y < nodeArraySize && z < nodeArraySize);
             return nodes[nodeArraySize * (nodeArraySize * x + y) + z];
@@ -195,9 +200,9 @@ private:
     {
         std::size_t operator()(const RenderCacheKey &key) const
         {
-            std::hash<HashlifeNodeBase *> hasher;
+            std::hash<std::shared_ptr<const HashlifeNodeBase>> hasher;
             std::size_t retval = 0;
-            for(auto *node : key.nodes)
+            for(auto &node : key.nodes)
             {
                 retval = retval * 1013 + hasher(node);
             }
@@ -211,7 +216,8 @@ private:
     };
 
 private:
-    static block::Block getBlock(HashlifeNodeBase *rootNode, util::Vector3I32 position) noexcept
+    static block::Block getBlock(std::shared_ptr<const HashlifeNodeBase> rootNode,
+                                 util::Vector3I32 position) noexcept
     {
         if(rootNode->isPositionInside(position))
             return rootNode->get(position);
@@ -226,13 +232,11 @@ public:
         Snapshot &operator=(const Snapshot &) = delete;
 
     private:
-        HashlifeNodeBase *rootNode;
+        std::shared_ptr<const HashlifeNodeBase> rootNode;
         std::shared_ptr<const HashlifeWorld> world;
 
     public:
-        Snapshot(HashlifeNodeBase *rootNode,
-                 std::shared_ptr<const HashlifeWorld> world,
-                 PrivateAccessTag)
+        Snapshot(std::shared_ptr<const HashlifeNodeBase> rootNode, PrivateAccessTag)
             : rootNode(rootNode), world(std::move(world))
         {
         }
@@ -327,9 +331,8 @@ public:
 
 private:
     HashlifeGarbageCollectedHashtable garbageCollectedHashtable;
-    mutable std::list<std::weak_ptr<Snapshot>> snapshots;
     std::list<std::weak_ptr<RenderCacheEntryReference>> renderCacheEntryReferences;
-    HashlifeNodeBase *rootNode;
+    std::shared_ptr<const HashlifeNodeBase> rootNode;
     std::unordered_map<RenderCacheKey, RenderCacheEntry, RenderCacheKeyHasher> renderCache;
     std::list<const RenderCacheKey *> renderCacheEntryList;
 
@@ -342,8 +345,7 @@ public:
         std::size_t renderCacheTargetEntryCount = defaultRenderCacheTargetEntryCount);
     std::shared_ptr<const Snapshot> makeSnapshot() const
     {
-        auto retval = std::make_shared<Snapshot>(rootNode, shared_from_this(), PrivateAccessTag());
-        snapshots.push_back(retval);
+        auto retval = std::make_shared<Snapshot>(rootNode, PrivateAccessTag());
         return retval;
     }
     static std::shared_ptr<HashlifeWorld> make()
@@ -358,7 +360,8 @@ public:
 private:
     void expandRoot();
     const HashlifeNonleafNode::FutureState &getFilledFutureState(
-        HashlifeNodeBase *nodeIn, const block::BlockStepGlobalState &stepGlobalState);
+        std::shared_ptr<const HashlifeNodeBase> nodeIn,
+        const block::BlockStepGlobalState &stepGlobalState);
 
 public:
     block::BlockStepExtraActions stepAndCollectGarbage(
@@ -397,11 +400,11 @@ public:
 
 private:
     template <typename BlocksArray>
-    HashlifeNodeBase *setBlocks(HashlifeNodeBase *node,
-                                BlocksArray &&blocksArray,
-                                util::Vector3I32 worldPosition,
-                                util::Vector3I32 arrayPosition,
-                                util::Vector3I32 size)
+    std::shared_ptr<const HashlifeNodeBase> setBlocks(std::shared_ptr<const HashlifeNodeBase> node,
+                                                      BlocksArray &&blocksArray,
+                                                      util::Vector3I32 worldPosition,
+                                                      util::Vector3I32 arrayPosition,
+                                                      util::Vector3I32 size)
     {
         constexprAssert(size.min() >= 0);
         constexprAssert(arrayPosition.x + size.x <= static_cast<std::int32_t>(blocksArray.size()));
@@ -430,7 +433,7 @@ private:
                            || (inputPosition - worldPosition - size).max() >= 0)
                         {
                             blocks[position.x][position.y][position.z] =
-                                getAsLeaf(node)->getBlock(position);
+                                getAsLeaf(node.get())->getBlock(position);
                         }
                         else
                         {
@@ -466,14 +469,14 @@ private:
                         endInputPosition = min(endInputPosition, worldPosition + size);
                         if((endInputPosition - minInputPosition).min() > 0)
                             childNodes[position.x][position.y][position.z] =
-                                setBlocks(getAsNonleaf(node)->getChildNode(position),
+                                setBlocks(getAsNonleaf(node.get())->getChildNode(position),
                                           std::forward<BlocksArray>(blocksArray),
                                           minInputPosition + offset,
                                           arrayPosition - worldPosition + minInputPosition,
                                           endInputPosition - minInputPosition);
                         else
                             childNodes[position.x][position.y][position.z] =
-                                getAsNonleaf(node)->getChildNode(position);
+                                getAsNonleaf(node.get())->getChildNode(position);
                     }
                 }
             }
@@ -500,7 +503,7 @@ public:
 
 private:
     template <typename BlocksArray>
-    static void getBlocksImplementation(HashlifeNodeBase *node,
+    static void getBlocksImplementation(std::shared_ptr<const HashlifeNodeBase> node,
                                         BlocksArray &&blocksArray,
                                         util::Vector3I32 worldPosition,
                                         util::Vector3I32 arrayPosition,
@@ -536,7 +539,7 @@ private:
                             std::forward<BlocksArray>(
                                 blocksArray)[blocksArrayPosition.x][blocksArrayPosition
                                                                         .y][blocksArrayPosition.z] =
-                                getAsLeaf(node)->getBlock(position);
+                                getAsLeaf(node.get())->getBlock(position);
                         }
                     }
                 }
@@ -562,7 +565,7 @@ private:
                         endInputPosition = min(endInputPosition, worldPosition + size);
                         if((endInputPosition - minInputPosition).min() > 0)
                             getBlocksImplementation(
-                                getAsNonleaf(node)->getChildNode(position),
+                                getAsNonleaf(node.get())->getChildNode(position),
                                 std::forward<BlocksArray>(blocksArray),
                                 minInputPosition + offset,
                                 arrayPosition - worldPosition + minInputPosition,
@@ -573,7 +576,7 @@ private:
         }
     }
     template <typename BlocksArray>
-    static void getBlocks(HashlifeNodeBase *node,
+    static void getBlocks(std::shared_ptr<const HashlifeNodeBase> node,
                           BlocksArray &&blocksArray,
                           util::Vector3I32 worldPosition,
                           util::Vector3I32 arrayPosition,
@@ -648,7 +651,7 @@ public:
     }
 
 private:
-    static void dumpNode(HashlifeNodeBase *node, std::ostream &os);
+    static void dumpNode(std::shared_ptr<const HashlifeNodeBase> node, std::ostream &os);
 
 public:
     void dump(std::ostream &os) const
@@ -700,7 +703,7 @@ public:
                         + util::Vector3I32(RenderCacheKey::centerSize) * util::Vector3I32(x, y, z);
                     key.getNode(x, y, z) =
                         rootNode->isPositionInside(nodePosition) ?
-                            rootNode->get(nodePosition, renderCacheNodeLevel) :
+                            rootNode->get(nodePosition, renderCacheNodeLevel)->shared_from_this() :
                             garbageCollectedHashtable.getCanonicalEmptyNode(renderCacheNodeLevel);
                 }
             }
@@ -726,7 +729,7 @@ public:
     {
     public:
         static constexpr int logBase2OfSizeInChunks =
-            5 - RenderCacheEntryReference::logBase2OfCenterSize;
+            4 - RenderCacheEntryReference::logBase2OfCenterSize;
         static_assert(logBase2OfSizeInChunks >= 0, "");
         static constexpr int logBase2OfSizeInBlocks =
             logBase2OfSizeInChunks + RenderCacheEntryReference::logBase2OfCenterSize;
