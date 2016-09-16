@@ -33,6 +33,7 @@
 #include "block/builtin/glowstone.h"
 #include "block/builtin/cobblestone.h"
 #include "threading/threading.h"
+#include "graphics/shape/cube.h"
 #include <sstream>
 #include <iostream>
 #include <chrono>
@@ -47,6 +48,128 @@ namespace voxels
 {
 namespace
 {
+struct MyBlock final : public block::BlockDescriptor
+{
+    static constexpr std::size_t stateCount =
+        block::BlockStepGlobalState::stepSizeInGenerations * 5 * 2;
+    const std::size_t state;
+    explicit MyBlock(std::size_t state)
+        : BlockDescriptor(
+              "testing.myBlock",
+              lighting::LightProperties::opaque(lighting::Lighting::makeArtificialLighting(
+                  state >= stateCount / 2 ? lighting::Lighting::maxLight : 0)),
+              BlockedFaces{{true, true, true, true, true, true}},
+              block::BlockSummary(false, true)),
+          state(state)
+    {
+    }
+    static util::Array<const MyBlock *, stateCount> make()
+    {
+        util::Array<const MyBlock *, stateCount> retval;
+        for(std::size_t state = 0; state < stateCount; state++)
+            retval[state] = new MyBlock(state);
+        return retval;
+    }
+    static const util::Array<const MyBlock *, stateCount> &get()
+    {
+        static util::Array<const MyBlock *, stateCount> retval = make();
+        return retval;
+    }
+    static const MyBlock *get(std::size_t state)
+    {
+        return get()[state];
+    }
+    virtual void render(graphics::MemoryRenderBuffer &renderBuffer,
+                        const block::BlockStepInput &stepInput,
+                        const block::BlockStepGlobalState &stepGlobalState,
+                        const util::EnumArray<const lighting::BlockLighting *, block::BlockFace> &
+                            blockLightingForFaces,
+                        const lighting::BlockLighting &blockLightingForCenter,
+                        const graphics::Transform &transform) const override
+    {
+        graphics::MemoryRenderBuffer localRenderBuffer;
+        for(block::BlockFace blockFace : util::EnumTraits<block::BlockFace>::values)
+        {
+            if(needRenderBlockFace(stepInput[getDirection(blockFace)].getBlockKind(), blockFace))
+            {
+                auto offset = getDirection(blockFace);
+                auto offsetF = static_cast<util::Vector3F>(offset);
+                auto *blockLighting = blockLightingForFaces[blockFace];
+                auto glowstoneTexture = block::builtin::Glowstone::get()->glowstoneTexture;
+                auto stoneTexture = block::builtin::Stone::get()->genericStoneTexture;
+                auto myTexture = state >= stateCount / 2 ? glowstoneTexture : stoneTexture;
+                graphics::shape::renderCubeFace(
+                    localRenderBuffer,
+                    graphics::RenderLayer::Opaque,
+                    blockFace,
+                    util::EnumArray<graphics::Texture, block::BlockFace>{
+                        myTexture, myTexture, myTexture, myTexture, myTexture, myTexture});
+                localRenderBuffer.applyLight(
+                    [&](util::Vector3F position, graphics::ColorF color, util::Vector3F normal)
+                        -> graphics::ColorF
+                    {
+                        return blockLighting->lightVertex(position - offsetF, color, normal);
+                    });
+                renderBuffer.appendBuffer(localRenderBuffer, transform);
+                localRenderBuffer.clear();
+            }
+        }
+    }
+    virtual block::BlockStepPartOutput stepFromCXCYCZ(
+        const block::BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState) const
+    {
+        if(state == 1)
+            return block::BlockStepPartOutput(block::builtin::Air::get()->blockKind);
+        return block::BlockStepPartOutput(get((state + 2) % stateCount)->blockKind);
+    }
+    block::BlockStepPartOutput stepFromBlockFace(const block::BlockStepInput &stepInput,
+                                                 const block::BlockStepGlobalState &stepGlobalState,
+                                                 block::BlockFace blockFace) const
+    {
+        if(stepInput[util::Vector3I32(0)].getBlockKind() == block::builtin::Air::get()->blockKind
+           && state % (block::BlockStepGlobalState::stepSizeInGenerations * 2) <= 1 && state != 1)
+            return block::BlockStepPartOutput(get(((state | 1) + 2) % stateCount)->blockKind);
+        return block::BlockStepPartOutput();
+    }
+    virtual block::BlockStepPartOutput stepFromNXCYCZ(
+        const block::BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState) const
+    {
+    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NX);
+    }
+    virtual block::BlockStepPartOutput stepFromPXCYCZ(
+        const block::BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState) const
+    {
+    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PX);
+    }
+    virtual block::BlockStepPartOutput stepFromCXNYCZ(
+        const block::BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState) const
+    {
+    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NY);
+    }
+    virtual block::BlockStepPartOutput stepFromCXPYCZ(
+        const block::BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState) const
+    {
+    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PY);
+    }
+    virtual block::BlockStepPartOutput stepFromCXCYNZ(
+        const block::BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState) const
+    {
+    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NZ);
+    }
+    virtual block::BlockStepPartOutput stepFromCXCYPZ(
+        const block::BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState) const
+    {
+    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PZ);
+    }
+};
+
 int main()
 {
     struct QuitException
@@ -55,7 +178,7 @@ int main()
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 10;
+    constexpr std::int32_t ballSize = 25;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {
@@ -67,11 +190,16 @@ int main()
                    || util::Vector3F(position.x, 0, position.z).normSquared() >= ballSize
                                                                                      * ballSize))
                 return block::Block(block::builtin::Bedrock::get()->blockKind);
-            if(position.x % 32 == 0 && position.z % 32 == 0 && position.x != 0 && position.z != 0)
+            if(position.x % 32 == 0 && position.z % 32 == 0 && (position.x != 0 || position.z != 0))
                 return block::Block(block::builtin::Glowstone::get()->blockKind);
             if((position - util::Vector3I32(ballSize / 2)).normSquared() < ballSize * ballSize
                                                                                / (4 * 4))
             {
+                if((position - util::Vector3I32(ballSize / 2)) * util::Vector3I32(1, 0, 1)
+                   == util::Vector3I32(0))
+                    return block::Block(
+                        MyBlock::get((block::BlockStepGlobalState::stepSizeInGenerations / 2) & ~1)
+                            ->blockKind);
                 if(position.y % 2 == 0)
                     return block::Block(block::builtin::Cobblestone::get()->blockKind);
                 return block::Block(block::builtin::Stone::get()->blockKind);
@@ -168,7 +296,7 @@ int main()
     bool generateRenderBuffersDone = false;
     std::list<threading::Thread> generateRenderBuffersThreads;
     const float nearPlane = 0.01f;
-    const float farPlane = 15 + ballSize;
+    const float farPlane = 50;
     world::HashlifeWorld::GPURenderBufferCache gpuRenderBufferCache;
     util::Vector3F playerPosition(0.5f);
     float viewPhi = 0;
@@ -356,6 +484,10 @@ int main()
                 playerPosition += transform(
                     graphics::Transform::rotateY(viewTheta),
                     util::Vector3F(deltaTime * ballSize / 10) * playerRelativeMoveDirection);
+                {
+                    std::unique_lock<std::mutex> lockIt(mainGameLoopLock);
+                    mainGameLoopPlayerPosition = playerPosition;
+                }
                 auto outputSize = graphics::Driver::get().getOutputSize();
                 float scaleX = std::get<0>(outputSize);
                 float scaleY = std::get<1>(outputSize);

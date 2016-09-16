@@ -35,7 +35,7 @@ namespace builtin
 {
 class Glowstone final : public BlockDescriptor
 {
-private:
+public:
     const graphics::TextureId glowstoneTexture;
 
 private:

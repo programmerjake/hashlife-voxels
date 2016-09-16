@@ -63,7 +63,7 @@ private:
     private:
         PrivateAccessTag() = default;
     };
-    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 3;
+    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 2;
     struct RenderCacheKey final
     {
         friend class HashlifeWorld;

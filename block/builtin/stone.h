@@ -35,7 +35,7 @@ namespace builtin
 {
 class GenericStone : public BlockDescriptor
 {
-protected:
+public:
     const graphics::TextureId genericStoneTexture;
 
 protected:
