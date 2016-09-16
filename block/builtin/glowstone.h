@@ -18,11 +18,12 @@
  * MA 02110-1301, USA.
  *
  */
-#include "bedrock.h"
-#include "../../graphics/render.h"
-#include "../../graphics/shape/cube.h"
-#include "../../lighting/lighting.h"
-#include "../../resource/resource.h"
+
+#ifndef BLOCK_BUILTIN_GLOWSTONE_H_
+#define BLOCK_BUILTIN_GLOWSTONE_H_
+
+#include "../block_descriptor.h"
+#include "../../graphics/texture.h"
 
 namespace programmerjake
 {
@@ -32,11 +33,35 @@ namespace block
 {
 namespace builtin
 {
-Bedrock::Bedrock()
-    : GenericStone("builtin.bedrock", resource::readResourceTexture("builtin/bedrock.png"))
+class Glowstone final : public BlockDescriptor
 {
+private:
+    const graphics::TextureId glowstoneTexture;
+
+private:
+    Glowstone();
+
+public:
+    static const Glowstone *get()
+    {
+        static const Glowstone *retval = new Glowstone;
+        return retval;
+    }
+    static void init()
+    {
+        get();
+    }
+    virtual void render(
+        graphics::MemoryRenderBuffer &renderBuffer,
+        const BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState,
+        const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
+        const lighting::BlockLighting &blockLightingForCenter,
+        const graphics::Transform &transform) const override;
+};
 }
 }
 }
 }
-}
+
+#endif /* BLOCK_BUILTIN_GLOWSTONE_H_ */

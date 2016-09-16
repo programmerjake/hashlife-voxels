@@ -63,7 +63,7 @@ private:
     private:
         PrivateAccessTag() = default;
     };
-    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 2;
+    static constexpr HashlifeNodeBase::LevelType renderCacheNodeLevel = 3;
     struct RenderCacheKey final
     {
         friend class HashlifeWorld;
@@ -503,7 +503,7 @@ public:
 
 private:
     template <typename BlocksArray>
-    static void getBlocksImplementation(std::shared_ptr<const HashlifeNodeBase> node,
+    static void getBlocksImplementation(const std::shared_ptr<const HashlifeNodeBase> &node,
                                         BlocksArray &&blocksArray,
                                         util::Vector3I32 worldPosition,
                                         util::Vector3I32 arrayPosition,
@@ -576,7 +576,7 @@ private:
         }
     }
     template <typename BlocksArray>
-    static void getBlocks(std::shared_ptr<const HashlifeNodeBase> node,
+    static void getBlocks(const std::shared_ptr<const HashlifeNodeBase> &node,
                           BlocksArray &&blocksArray,
                           util::Vector3I32 worldPosition,
                           util::Vector3I32 arrayPosition,

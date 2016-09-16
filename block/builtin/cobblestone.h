@@ -18,11 +18,11 @@
  * MA 02110-1301, USA.
  *
  */
-#include "bedrock.h"
-#include "../../graphics/render.h"
-#include "../../graphics/shape/cube.h"
-#include "../../lighting/lighting.h"
-#include "../../resource/resource.h"
+
+#ifndef BLOCK_BUILTIN_COBBLESTONE_H_
+#define BLOCK_BUILTIN_COBBLESTONE_H_
+
+#include "stone.h"
 
 namespace programmerjake
 {
@@ -32,11 +32,25 @@ namespace block
 {
 namespace builtin
 {
-Bedrock::Bedrock()
-    : GenericStone("builtin.bedrock", resource::readResourceTexture("builtin/bedrock.png"))
+class Cobblestone final : public GenericStone
 {
+private:
+    Cobblestone();
+
+public:
+    static const Cobblestone *get()
+    {
+        static const Cobblestone *retval = new Cobblestone;
+        return retval;
+    }
+    static void init()
+    {
+        get();
+    }
+};
 }
 }
 }
 }
-}
+
+#endif /* BLOCK_BUILTIN_COBBLESTONE_H_ */

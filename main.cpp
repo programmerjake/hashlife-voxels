@@ -29,6 +29,9 @@
 #include "graphics/drivers/null_driver.h"
 #include "graphics/drivers/opengl_1_driver.h"
 #include "block/builtin/bedrock.h"
+#include "block/builtin/stone.h"
+#include "block/builtin/glowstone.h"
+#include "block/builtin/cobblestone.h"
 #include "threading/threading.h"
 #include <sstream>
 #include <iostream>
@@ -52,21 +55,27 @@ int main()
     world::initAll(new graphics::drivers::OpenGL1Driver);
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 25;
+    constexpr std::int32_t ballSize = 10;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {
         block::Block getBlock(util::Vector3I32 position)
         {
             position -= util::Vector3I32(renderRange);
-            if((position.normSquared() >= ballSize * ballSize
-                && (position.y < (position.x > 0 ? 0 : ballSize * 3 / 4)
-                    || util::Vector3F(position.x, 0, position.z).normSquared() >= ballSize
-                                                                                      * ballSize))
-               || ((position - util::Vector3I32(ballSize / 2)).normSquared() < ballSize * ballSize
-                                                                                   / (4 * 4)
-                   && (position.x % 32 != 0 || position.z % 32 != 0)))
+            if((position * util::Vector3I32(1, 2, 1)).normSquared() >= ballSize * ballSize
+               && (position.y < (position.x > 0 ? 0 : ballSize * 3 / 8)
+                   || util::Vector3F(position.x, 0, position.z).normSquared() >= ballSize
+                                                                                     * ballSize))
                 return block::Block(block::builtin::Bedrock::get()->blockKind);
+            if(position.x % 32 == 0 && position.z % 32 == 0 && position.x != 0 && position.z != 0)
+                return block::Block(block::builtin::Glowstone::get()->blockKind);
+            if((position - util::Vector3I32(ballSize / 2)).normSquared() < ballSize * ballSize
+                                                                               / (4 * 4))
+            {
+                if(position.y % 2 == 0)
+                    return block::Block(block::builtin::Cobblestone::get()->blockKind);
+                return block::Block(block::builtin::Stone::get()->blockKind);
+            }
             return block::Block(block::builtin::Air::get()->blockKind,
                                 lighting::Lighting::makeSkyLighting());
         }
@@ -121,8 +130,8 @@ int main()
                         util::Vector3I32(renderRange * 2));
     const block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
         lighting::Lighting::maxLight, world::Dimension::overworld()));
-#if 0
-    for(std::size_t i = 0; i < ballSize; i++)
+#if 1
+    for(std::size_t i = 0; i < ballSize / 16; i++)
     {
         theWorld->stepAndCollectGarbage(blockStepGlobalState);
     }
@@ -159,7 +168,7 @@ int main()
     bool generateRenderBuffersDone = false;
     std::list<threading::Thread> generateRenderBuffersThreads;
     const float nearPlane = 0.01f;
-    const float farPlane = 15 + ballSize * 2;
+    const float farPlane = 15 + ballSize;
     world::HashlifeWorld::GPURenderBufferCache gpuRenderBufferCache;
     util::Vector3F playerPosition(0.5f);
     float viewPhi = 0;
@@ -173,6 +182,7 @@ int main()
     bool keySpacePressed = false;
     bool keyLeftShiftPressed = false;
     bool keyRightShiftPressed = false;
+    bool paused = true;
 
     std::mutex mainGameLoopLock;
     std::condition_variable mainGameLoopCond;
@@ -190,11 +200,9 @@ int main()
         graphics::Driver::get().run(
             [&]() -> std::shared_ptr<graphics::CommandBuffer>
             {
+                graphics::Driver::get().setRelativeMouseMode(!paused);
                 if(!mainGameLoopThread.joinable())
                 {
-#if 1
-                    graphics::Driver::get().setRelativeMouseMode(true);
-#endif
                     std::size_t totalThreadCount = threading::Thread::hardwareConcurrency();
                     if(totalThreadCount < 4)
                         totalThreadCount = 4;
@@ -243,46 +251,55 @@ int main()
                                     lastTPSReportTime += std::chrono::seconds(5);
                                     std::ostringstream ss;
                                     ss << "TPS: " << static_cast<float>(tickCount) / 5;
+                                    {
+                                        std::unique_lock<std::mutex> lockGenerateRenderBuffers(
+                                            generateRenderBuffersLock);
+                                        ss << " " << generateRenderBuffersWorkList.size() << " "
+                                           << generateRenderBuffersMap.size();
+                                    }
                                     tickCount = 0;
                                     logging::log(logging::Level::Info, "main", ss.str());
                                 }
                                 theWorld->stepAndCollectGarbage(blockStepGlobalState);
-                                theWorld->updateView(
-                                    [&](const std::shared_ptr<world::HashlifeWorld::
-                                                                  RenderCacheEntryReference> &key)
-                                        -> std::shared_ptr<graphics::ReadableRenderBuffer>
-                                    {
-                                        std::unique_lock<std::mutex> lockIt(
-                                            generateRenderBuffersLock);
-                                        auto iter = generateRenderBuffersMap.find(key);
-                                        if(iter == generateRenderBuffersMap.end())
+                                {
+                                    theWorld->updateView(
+                                        [&](const std::shared_ptr<world::HashlifeWorld::
+                                                                      RenderCacheEntryReference> &
+                                                key)
+                                            -> std::shared_ptr<graphics::ReadableRenderBuffer>
                                         {
-                                            generateRenderBuffersMap.emplace(
-                                                key, GenerateRenderBuffersValue());
-                                            generateRenderBuffersWorkList.push_back(key);
-                                            generateRenderBuffersCond.notify_all();
+                                            std::unique_lock<std::mutex> lockGenerateRenderBuffers(
+                                                generateRenderBuffersLock);
+                                            auto iter = generateRenderBuffersMap.find(key);
+                                            if(iter == generateRenderBuffersMap.end())
+                                            {
+                                                generateRenderBuffersMap.emplace(
+                                                    key, GenerateRenderBuffersValue());
+                                                generateRenderBuffersWorkList.push_back(key);
+                                                generateRenderBuffersCond.notify_all();
+                                                return nullptr;
+                                            }
+                                            if(std::get<1>(*iter).renderBuffer)
+                                            {
+                                                auto retval =
+                                                    std::move(std::get<1>(*iter).renderBuffer);
+                                                generateRenderBuffersMap.erase(iter);
+                                                return retval;
+                                            }
                                             return nullptr;
-                                        }
-                                        if(std::get<1>(*iter).renderBuffer)
+                                        },
+                                        [&](const std::shared_ptr<world::HashlifeWorld::
+                                                                      GPURenderBufferCache::Entry> &
+                                                entry)
                                         {
-                                            auto retval =
-                                                std::move(std::get<1>(*iter).renderBuffer);
-                                            generateRenderBuffersMap.erase(iter);
-                                            return retval;
-                                        }
-                                        return nullptr;
-                                    },
-                                    [&](const std::shared_ptr<world::HashlifeWorld::
-                                                                  GPURenderBufferCache::Entry> &
-                                            entry)
-                                    {
-                                        entry->gpuRenderBuffer =
-                                            entry->sourceRenderBuffers.render();
-                                    },
-                                    playerPosition,
-                                    farPlane,
-                                    blockStepGlobalState,
-                                    gpuRenderBufferCache);
+                                            entry->gpuRenderBuffer =
+                                                entry->sourceRenderBuffers.render();
+                                        },
+                                        playerPosition,
+                                        farPlane,
+                                        blockStepGlobalState,
+                                        gpuRenderBufferCache);
+                                }
                                 // sleep until 1/20 of a second has elapsed
                                 // since lastTick
 #if 1
@@ -308,6 +325,11 @@ int main()
                     frameCount = 0;
                     logging::log(logging::Level::Info, "main", ss.str());
                 }
+                if(paused)
+                {
+                    deltaViewPhi = 0;
+                    deltaViewTheta = 0;
+                }
                 deltaViewPhi *= 0.5f;
                 viewPhi += deltaViewPhi;
                 if(viewPhi < -M_PI_2)
@@ -329,6 +351,8 @@ int main()
                     playerRelativeMoveDirection -= util::Vector3F(0, 1, 0);
                 if(keySpacePressed)
                     playerRelativeMoveDirection += util::Vector3F(0, 1, 0);
+                if(paused)
+                    playerRelativeMoveDirection = util::Vector3F(0);
                 playerPosition += transform(
                     graphics::Transform::rotateY(viewTheta),
                     util::Vector3F(deltaTime * ballSize / 10) * playerRelativeMoveDirection);
@@ -382,6 +406,11 @@ int main()
                         keyRightShiftPressed = true;
                     else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Space)
                         keySpacePressed = true;
+                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::P)
+                    {
+                        if(!keyDown->repeat)
+                            paused = !paused;
+                    }
                 }
                 if(auto keyUp = dynamic_cast<const ui::event::KeyUp *>(&event))
                 {

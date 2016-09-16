@@ -42,7 +42,7 @@ namespace block
 {
 struct BlockStepGlobalState final
 {
-    static constexpr std::uint32_t log2OfStepSizeInGenerations = 2;
+    static constexpr std::uint32_t log2OfStepSizeInGenerations = 5;
     static constexpr std::uint32_t stepSizeInGenerations = 1UL << log2OfStepSizeInGenerations;
     lighting::Lighting::GlobalProperties lightingGlobalProperties;
     constexpr world::Dimension getDimension() const

@@ -21,6 +21,9 @@
 #include "init.h"
 #include "air.h"
 #include "bedrock.h"
+#include "stone.h"
+#include "cobblestone.h"
+#include "glowstone.h"
 
 namespace programmerjake
 {
@@ -33,7 +36,10 @@ namespace builtin
 void init()
 {
     Air::init();
+    Stone::init();
+    Cobblestone::init();
     Bedrock::init();
+    Glowstone::init();
 }
 }
 }

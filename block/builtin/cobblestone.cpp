@@ -18,7 +18,7 @@
  * MA 02110-1301, USA.
  *
  */
-#include "bedrock.h"
+#include "cobblestone.h"
 #include "../../graphics/render.h"
 #include "../../graphics/shape/cube.h"
 #include "../../lighting/lighting.h"
@@ -32,8 +32,8 @@ namespace block
 {
 namespace builtin
 {
-Bedrock::Bedrock()
-    : GenericStone("builtin.bedrock", resource::readResourceTexture("builtin/bedrock.png"))
+Cobblestone::Cobblestone()
+    : GenericStone("builtin.cobblestone", resource::readResourceTexture("builtin/cobblestone.png"))
 {
 }
 }

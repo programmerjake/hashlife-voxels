@@ -226,7 +226,7 @@ struct OpenGL1Driver::Implementation final
             auto invCurrentTextureWidth = driver.implementation->invCurrentTextureWidth;
             auto invCurrentTextureHeight = driver.implementation->invCurrentTextureHeight;
             auto &blankTexture = driver.implementation->textures.front();
-            constexpr float pixelOffsetUnscaled = static_cast<float>(1.0 / 0x1000L);
+            constexpr float pixelOffsetUnscaled = static_cast<float>(1.0 / 0x10L);
             const float pixelOffset =
                 pixelOffsetUnscaled
                 * (invCurrentTextureWidth < invCurrentTextureHeight ? invCurrentTextureWidth :

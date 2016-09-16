@@ -19,10 +19,11 @@
  *
  */
 
-#ifndef BLOCK_BUILTIN_BEDROCK_H_
-#define BLOCK_BUILTIN_BEDROCK_H_
+#ifndef BLOCK_BUILTIN_STONE_H_
+#define BLOCK_BUILTIN_STONE_H_
 
-#include "stone.h"
+#include "../block_descriptor.h"
+#include "../../graphics/texture.h"
 
 namespace programmerjake
 {
@@ -32,15 +33,33 @@ namespace block
 {
 namespace builtin
 {
-class Bedrock final : public GenericStone
+class GenericStone : public BlockDescriptor
 {
-private:
-    Bedrock();
+protected:
+    const graphics::TextureId genericStoneTexture;
+
+protected:
+    GenericStone(std::string name, graphics::TextureId genericStoneTexture);
 
 public:
-    static const Bedrock *get()
+    virtual void render(
+        graphics::MemoryRenderBuffer &renderBuffer,
+        const BlockStepInput &stepInput,
+        const block::BlockStepGlobalState &stepGlobalState,
+        const util::EnumArray<const lighting::BlockLighting *, BlockFace> &blockLightingForFaces,
+        const lighting::BlockLighting &blockLightingForCenter,
+        const graphics::Transform &transform) const override;
+};
+
+class Stone final : public GenericStone
+{
+private:
+	Stone();
+
+public:
+    static const Stone *get()
     {
-        static const Bedrock *retval = new Bedrock;
+        static const Stone *retval = new Stone;
         return retval;
     }
     static void init()
@@ -53,4 +72,4 @@ public:
 }
 }
 
-#endif /* BLOCK_BUILTIN_BEDROCK_H_ */
+#endif /* BLOCK_BUILTIN_STONE_H_ */
