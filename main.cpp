@@ -128,7 +128,8 @@ struct MyBlock final : public block::BlockDescriptor
                                                  block::BlockFace blockFace) const
     {
         if(stepInput[util::Vector3I32(0)].getBlockKind() == block::builtin::Air::get()->blockKind
-           && state % (block::BlockStepGlobalState::stepSizeInGenerations * 2) <= 1 && state != 1)
+           && state % (block::BlockStepGlobalState::stepSizeInGenerations * 2) <= 1
+           && state != 1)
             return block::BlockStepPartOutput(get(((state | 1) + 2) % stateCount)->blockKind);
         return block::BlockStepPartOutput();
     }
@@ -136,37 +137,37 @@ struct MyBlock final : public block::BlockDescriptor
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const
     {
-    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NX);
+        return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NX);
     }
     virtual block::BlockStepPartOutput stepFromPXCYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const
     {
-    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PX);
+        return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PX);
     }
     virtual block::BlockStepPartOutput stepFromCXNYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const
     {
-    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NY);
+        return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NY);
     }
     virtual block::BlockStepPartOutput stepFromCXPYCZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const
     {
-    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PY);
+        return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PY);
     }
     virtual block::BlockStepPartOutput stepFromCXCYNZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const
     {
-    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NZ);
+        return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::NZ);
     }
     virtual block::BlockStepPartOutput stepFromCXCYPZ(
         const block::BlockStepInput &stepInput,
         const block::BlockStepGlobalState &stepGlobalState) const
     {
-    	return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PZ);
+        return stepFromBlockFace(stepInput, stepGlobalState, block::BlockFace::PZ);
     }
 };
 
@@ -175,10 +176,15 @@ int main()
     struct QuitException
     {
     };
+#if 1
     world::initAll(new graphics::drivers::OpenGL1Driver);
+#else
+    world::initAll(new graphics::drivers::NullDriver(std::chrono::steady_clock::now()
+                                                     + std::chrono::seconds(60)));
+#endif
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 25;
+    constexpr std::int32_t ballSize = 200;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {
@@ -296,7 +302,7 @@ int main()
     bool generateRenderBuffersDone = false;
     std::list<threading::Thread> generateRenderBuffersThreads;
     const float nearPlane = 0.01f;
-    const float farPlane = 50;
+    const float farPlane = 100;
     world::HashlifeWorld::GPURenderBufferCache gpuRenderBufferCache;
     util::Vector3F playerPosition(0.5f);
     float viewPhi = 0;

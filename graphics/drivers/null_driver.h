@@ -26,6 +26,7 @@
 #include "../../util/constexpr_assert.h"
 #include "../../platform/terminate_handler.h"
 #include <atomic>
+#include <chrono>
 
 namespace programmerjake
 {
@@ -37,6 +38,19 @@ namespace drivers
 {
 class NullDriver final : public Driver
 {
+private:
+    const std::chrono::steady_clock::time_point terminateTime;
+    const bool hasTerminateTime;
+
+public:
+    NullDriver() : terminateTime(), hasTerminateTime(false)
+    {
+    }
+    NullDriver(std::chrono::steady_clock::time_point terminateTime)
+        : terminateTime(terminateTime), hasTerminateTime(true)
+    {
+    }
+
 private:
     static int installTerminationRequestHandler()
     {
@@ -56,7 +70,9 @@ private:
     }
     static std::size_t getTerminationRequestCount()
     {
-        return getTerminationRequestCountVariable().exchange(0, std::memory_order_relaxed);
+        std::size_t retval =
+            getTerminationRequestCountVariable().exchange(0, std::memory_order_relaxed);
+        return retval;
     }
     bool running = false;
     struct NullTextureImplementation final : public TextureImplementation
@@ -198,6 +214,7 @@ private:
     };
     struct NullCommandBuffer final : public CommandBuffer
     {
+        std::vector<std::shared_ptr<RenderBuffer>> renderBuffers;
         bool finished = false;
         virtual void appendClearCommand(bool colorFlag,
                                         bool depthFlag,
@@ -216,6 +233,7 @@ private:
             constexprAssert(dynamic_cast<const NullRenderBuffer *>(renderBuffer.get()));
             constexprAssert(
                 static_cast<const NullRenderBuffer *>(renderBuffer.get())->isFinished());
+            renderBuffers.push_back(renderBuffer);
         }
         virtual void appendPresentCommandAndFinish() override
         {
@@ -252,6 +270,7 @@ public:
         util::FunctionReference<void(const ui::event::Event &event)> eventCallback) override
     {
         running = true;
+        bool waitingForTimedTerminate = hasTerminateTime;
         try
         {
             while(true)
@@ -264,6 +283,11 @@ public:
                         static_cast<const NullCommandBuffer *>(commandBuffer.get())->finished);
                 }
                 auto terminationRequestCount = getTerminationRequestCount();
+                if(waitingForTimedTerminate && std::chrono::steady_clock::now() >= terminateTime)
+                {
+                    terminationRequestCount++;
+                    waitingForTimedTerminate = false;
+                }
                 for(std::size_t i = 0; i < terminationRequestCount; i++)
                 {
                     eventCallback(ui::event::Quit());

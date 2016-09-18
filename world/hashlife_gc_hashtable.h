@@ -59,13 +59,15 @@ private:
     };
 
 private:
-    std::shared_ptr<const HashlifeNodeBase> canonicalEmptyNodes[HashlifeNodeBase::maxLevel + 1];
+    HashlifeNodeReference<const HashlifeNodeBase, false>
+        canonicalEmptyNodes[HashlifeNodeBase::maxLevel + 1];
     std::unordered_map<const HashlifeNodeBase *,
-                       std::shared_ptr<const HashlifeNodeBase>,
+                       HashlifeNodeReference<const HashlifeNodeBase, false>,
                        NodeHasher,
                        NodeEquals> nodes;
     template <typename NodeType>
-    const std::shared_ptr<const HashlifeNodeBase> &findOrAddNodeImplementation(NodeType &&nodeIn)
+    const HashlifeNodeReference<const HashlifeNodeBase, false> &findOrAddNodeImplementation(
+        NodeType &&nodeIn)
     {
         auto iter = nodes.find(&nodeIn);
         if(iter == nodes.end())
@@ -78,15 +80,17 @@ private:
 
 public:
     HashlifeGarbageCollectedHashtable() = default;
-    const std::shared_ptr<const HashlifeNodeBase> &findOrAddNode(const HashlifeNodeBase &nodeIn)
+    const HashlifeNodeReference<const HashlifeNodeBase, false> &findOrAddNode(
+        const HashlifeNodeBase &nodeIn)
     {
         return findOrAddNodeImplementation(nodeIn);
     }
-    const std::shared_ptr<const HashlifeNodeBase> &findOrAddNode(HashlifeNodeBase &&nodeIn)
+    const HashlifeNodeReference<const HashlifeNodeBase, false> &findOrAddNode(
+        HashlifeNodeBase &&nodeIn)
     {
         return findOrAddNodeImplementation(std::move(nodeIn));
     }
-    const std::shared_ptr<const HashlifeNodeBase> &getCanonicalEmptyNode(
+    const HashlifeNodeReference<const HashlifeNodeBase, false> &getCanonicalEmptyNode(
         HashlifeNodeBase::LevelType level)
     {
         constexprAssert(level <= HashlifeNodeBase::maxLevel);

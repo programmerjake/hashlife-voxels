@@ -87,7 +87,7 @@ void HashlifeWorld::expandRoot()
 }
 
 const HashlifeNonleafNode::FutureState &HashlifeWorld::getFilledFutureState(
-    std::shared_ptr<const HashlifeNodeBase> nodeIn,
+    HashlifeNodeReference<const HashlifeNodeBase, false> nodeIn,
     const block::BlockStepGlobalState &stepGlobalState)
 {
     constexprAssert(!nodeIn->isLeaf());
@@ -136,7 +136,7 @@ const HashlifeNonleafNode::FutureState &HashlifeWorld::getFilledFutureState(
     {
         static_assert(HashlifeNodeBase::levelSize == 2, "");
         static constexpr std::int32_t intermediateSize = HashlifeNodeBase::levelSize * 2 - 1;
-        util::Array<util::Array<util::Array<std::shared_ptr<const HashlifeNodeBase>,
+        util::Array<util::Array<util::Array<HashlifeNodeReference<const HashlifeNodeBase, false>,
                                             intermediateSize>,
                                 intermediateSize>,
                     intermediateSize> intermediate;
@@ -359,12 +359,13 @@ const HashlifeNonleafNode::FutureState &HashlifeWorld::getFilledFutureState(
     return node->futureState;
 }
 
-void HashlifeWorld::dumpNode(std::shared_ptr<const HashlifeNodeBase> node, std::ostream &os)
+void HashlifeWorld::dumpNode(HashlifeNodeReference<const HashlifeNodeBase, true> node,
+                             std::ostream &os)
 {
-    std::unordered_map<std::shared_ptr<const HashlifeNodeBase>, std::size_t> nodeNumbers;
-    std::deque<std::shared_ptr<const HashlifeNodeBase>> worklist;
-    worklist.push_back(node);
-    nodeNumbers[node] = 0;
+    std::unordered_map<const HashlifeNodeBase *, std::size_t> nodeNumbers;
+    std::deque<const HashlifeNodeBase *> worklist;
+    worklist.push_back(node.get());
+    nodeNumbers[node.get()] = 0;
     while(!worklist.empty())
     {
         auto currentNode = std::move(worklist.front());
@@ -380,7 +381,7 @@ void HashlifeWorld::dumpNode(std::shared_ptr<const HashlifeNodeBase> node, std::
                 {
                     for(position.z = 0; position.z < HashlifeNodeBase::levelSize; position.z++)
                     {
-                        auto block = getAsLeaf(currentNode.get())->getBlock(position);
+                        auto block = getAsLeaf(currentNode)->getBlock(position);
                         auto blockDescriptor = block::BlockDescriptor::get(block.getBlockKind());
                         os << "    [" << position.x << "][" << position.y << "][" << position.z
                            << "] = <" << static_cast<unsigned>(block.getDirectSkylight()) << ", "
@@ -404,7 +405,7 @@ void HashlifeWorld::dumpNode(std::shared_ptr<const HashlifeNodeBase> node, std::
                 {
                     for(position.z = 0; position.z < HashlifeNodeBase::levelSize; position.z++)
                     {
-                        auto childNode = getAsNonleaf(currentNode.get())->getChildNode(position);
+                        auto childNode = getAsNonleaf(currentNode)->getChildNode(position).get();
                         auto iter = nodeNumbers.find(childNode);
                         if(iter == nodeNumbers.end())
                         {

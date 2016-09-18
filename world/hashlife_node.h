@@ -31,7 +31,8 @@
 #include <type_traits>
 #include <list>
 #include <cstdint>
-#include <memory>
+#include <atomic>
+#include <utility>
 
 namespace programmerjake
 {
@@ -39,12 +40,223 @@ namespace voxels
 {
 namespace world
 {
+class HashlifeNodeBase;
+
+template <typename T, bool IsAtomic>
+class HashlifeNodeReference;
+
+template <bool IsAtomic>
+struct HashlifeNodeReferenceHelper;
+
+template <bool IsAtomic>
+class HashlifeNodeReferenceBase
+{
+    friend class HashlifeNodeBase;
+    template <typename, bool>
+    friend class HashlifeNodeReference;
+    template <bool>
+    friend class HashlifeNodeReferenceBase;
+
+private:
+    const HashlifeNodeBase *pointer;
+
+private:
+    constexpr explicit HashlifeNodeReferenceBase(const HashlifeNodeBase *pointer) noexcept
+        : pointer(pointer)
+    {
+    }
+
+public:
+    constexpr HashlifeNodeReferenceBase() noexcept : pointer(nullptr)
+    {
+    }
+    constexpr HashlifeNodeReferenceBase(std::nullptr_t) noexcept : pointer(nullptr)
+    {
+    }
+    HashlifeNodeReferenceBase(HashlifeNodeReferenceBase &&rt) noexcept : pointer(rt.pointer)
+    {
+        rt.pointer = nullptr;
+    }
+    HashlifeNodeReferenceBase(const HashlifeNodeReferenceBase &rt) noexcept : pointer(rt.pointer)
+    {
+        if(pointer)
+            HashlifeNodeReferenceHelper<IsAtomic>::incReferenceCount(pointer);
+    }
+    explicit HashlifeNodeReferenceBase(const HashlifeNodeReferenceBase<!IsAtomic> &rt) noexcept
+        : pointer(rt.pointer)
+    {
+        if(pointer)
+            HashlifeNodeReferenceHelper<IsAtomic>::incReferenceCount(pointer);
+    }
+    explicit HashlifeNodeReferenceBase(HashlifeNodeReferenceBase<!IsAtomic> &&rt) noexcept
+        : HashlifeNodeReferenceBase(HashlifeNodeReferenceBase<!IsAtomic>(std::move(rt)))
+    {
+    }
+    HashlifeNodeReferenceBase &operator=(HashlifeNodeReferenceBase rt) noexcept
+    {
+        std::swap(pointer, rt.pointer);
+        return *this;
+    }
+    ~HashlifeNodeReferenceBase()
+    {
+        if(pointer)
+            HashlifeNodeReferenceHelper<IsAtomic>::decReferenceCountAndFreeIfNeeded(pointer);
+    }
+    std::size_t useCount() const noexcept
+    {
+        if(pointer)
+            return HashlifeNodeReferenceHelper<IsAtomic>::getUseCount(pointer);
+        return 0;
+    }
+    bool unique() const noexcept
+    {
+        return useCount() == 1;
+    }
+    template <bool IsAtomic2>
+    friend bool operator==(const HashlifeNodeReferenceBase<IsAtomic> &a,
+                           const HashlifeNodeReferenceBase<IsAtomic2> &b) noexcept
+    {
+        return a.pointer == b.pointer;
+    }
+    template <bool IsAtomic2>
+    friend bool operator!=(const HashlifeNodeReferenceBase<IsAtomic> &a,
+                           const HashlifeNodeReferenceBase<IsAtomic2> &b) noexcept
+    {
+        return a.pointer != b.pointer;
+    }
+    friend bool operator==(std::nullptr_t, const HashlifeNodeReferenceBase<IsAtomic> &v) noexcept
+    {
+        return v.pointer == nullptr;
+    }
+    friend bool operator!=(std::nullptr_t, const HashlifeNodeReferenceBase<IsAtomic> &v) noexcept
+    {
+        return v.pointer != nullptr;
+    }
+    friend bool operator==(const HashlifeNodeReferenceBase<IsAtomic> &v, std::nullptr_t) noexcept
+    {
+        return v.pointer == nullptr;
+    }
+    friend bool operator!=(const HashlifeNodeReferenceBase<IsAtomic> &v, std::nullptr_t) noexcept
+    {
+        return v.pointer != nullptr;
+    }
+};
+
+template <typename T, bool IsAtomic>
+class HashlifeNodeReference final : public HashlifeNodeReferenceBase<IsAtomic>
+{
+    template <typename, bool>
+    friend class HashlifeNodeReference;
+    friend class HashlifeNodeBase;
+    static_assert(std::is_base_of<HashlifeNodeBase, typename std::remove_const<T>::type>::value,
+                  "");
+
+public:
+    constexpr HashlifeNodeReference() noexcept
+    {
+    }
+    constexpr HashlifeNodeReference(std::nullptr_t) noexcept
+        : HashlifeNodeReferenceBase<IsAtomic>(nullptr)
+    {
+    }
+    template <typename U,
+              typename = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
+    HashlifeNodeReference(HashlifeNodeReference<U, IsAtomic> &&rt) noexcept
+        : HashlifeNodeReferenceBase<IsAtomic>(std::move(rt))
+    {
+    }
+    template <typename U,
+              typename = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
+    HashlifeNodeReference(const HashlifeNodeReference<U, IsAtomic> &rt) noexcept
+        : HashlifeNodeReferenceBase<IsAtomic>(rt)
+    {
+    }
+    template <typename U,
+              bool IsAtomic2,
+              typename = typename std::enable_if<std::is_convertible<U *, T *>::value
+                                                 && IsAtomic != IsAtomic2>::type>
+    explicit HashlifeNodeReference(HashlifeNodeReference<U, IsAtomic2> &&rt) noexcept
+        : HashlifeNodeReferenceBase<IsAtomic>(std::move(rt))
+    {
+    }
+    template <typename U,
+              bool IsAtomic2,
+              typename = typename std::enable_if<std::is_convertible<U *, T *>::value
+                                                 && IsAtomic != IsAtomic2>::type>
+    explicit HashlifeNodeReference(const HashlifeNodeReference<U, IsAtomic2> &rt) noexcept
+        : HashlifeNodeReferenceBase<IsAtomic>(rt)
+    {
+    }
+
+private:
+    constexpr explicit HashlifeNodeReference(T *pointer) noexcept
+        : HashlifeNodeReferenceBase<IsAtomic>(pointer)
+    {
+    }
+    T *release() noexcept
+    {
+        T *retval = get();
+        this->pointer = nullptr;
+        return retval;
+    }
+
+public:
+    T *get() const noexcept
+    {
+        return static_cast<T *>(const_cast<HashlifeNodeBase *>(this->pointer));
+    }
+    explicit operator bool() const noexcept
+    {
+        return this->pointer != nullptr;
+    }
+    T &operator*() const noexcept
+    {
+        return *operator->();
+    }
+    T *operator->() const noexcept
+    {
+        constexprAssert(this->pointer != nullptr);
+        return get();
+    }
+    template <typename U>
+    friend HashlifeNodeReference<U, IsAtomic> const_pointer_cast(
+        HashlifeNodeReference<T, IsAtomic> value)
+    {
+        return HashlifeNodeReference<U, IsAtomic>(const_cast<U *>(value.release()));
+    }
+    template <typename U>
+    friend HashlifeNodeReference<U, IsAtomic> static_pointer_cast(
+        HashlifeNodeReference<T, IsAtomic> value)
+    {
+        return HashlifeNodeReference<U, IsAtomic>(static_cast<U *>(value.release()));
+    }
+};
+
 struct HashlifeNonleafNode;
 struct HashlifeLeafNode;
-struct HashlifeNodeBase : public std::enable_shared_from_this<HashlifeNodeBase>
+class HashlifeNodeBase
 {
     friend struct HashlifeNonleafNode;
     friend struct HashlifeLeafNode;
+    template <bool>
+    friend class HashlifeNodeReferenceBase;
+    template <bool>
+    friend struct HashlifeNodeReferenceHelper;
+
+private:
+    struct ReferenceCounts final
+    {
+        std::atomic_size_t atomicReferenceCount{1};
+        std::size_t nonAtomicReferenceCount{1};
+        ReferenceCounts() = default;
+        ReferenceCounts &operator=(const ReferenceCounts &) = delete;
+        ReferenceCounts(const ReferenceCounts &) noexcept : ReferenceCounts()
+        {
+        }
+    };
+    mutable ReferenceCounts referenceCounts;
+
+public:
     static constexpr std::int32_t levelSize = 2;
     typedef std::uint8_t LevelType;
     static constexpr LevelType maxLevel = 32 - 2;
@@ -140,8 +352,20 @@ struct HashlifeNodeBase : public std::enable_shared_from_this<HashlifeNodeBase>
     }
     bool operator==(const HashlifeNodeBase &rt) const;
     std::size_t hash() const;
-    std::shared_ptr<HashlifeNodeBase> duplicate() const &;
-    std::shared_ptr<HashlifeNodeBase> duplicate() && ;
+    HashlifeNodeReference<HashlifeNodeBase, false> duplicate() const &;
+    HashlifeNodeReference<HashlifeNodeBase, false> duplicate() && ;
+    template <bool IsAtomic>
+    HashlifeNodeReference<const HashlifeNodeBase, IsAtomic> referenceFromThis() const noexcept
+    {
+        HashlifeNodeReferenceHelper<IsAtomic>::incReferenceCount(this);
+        return HashlifeNodeReference<const HashlifeNodeBase, IsAtomic>(this);
+    }
+    template <bool IsAtomic>
+    HashlifeNodeReference<HashlifeNodeBase, IsAtomic> referenceFromThis() noexcept
+    {
+        HashlifeNodeReferenceHelper<IsAtomic>::incReferenceCount(this);
+        return HashlifeNodeReference<HashlifeNodeBase, IsAtomic>(this);
+    }
     friend HashlifeLeafNode *getAsLeaf(HashlifeNodeBase *node) noexcept;
     friend HashlifeNonleafNode *getAsNonleaf(HashlifeNodeBase *node) noexcept;
     friend const HashlifeLeafNode *getAsLeaf(const HashlifeNodeBase *node) noexcept;
@@ -170,6 +394,45 @@ private:
     }
 };
 
+template <>
+struct HashlifeNodeReferenceHelper<true> final // atomic
+{
+    static void incReferenceCount(const HashlifeNodeBase *pointer) noexcept
+    {
+        pointer->referenceCounts.atomicReferenceCount.fetch_add(1, std::memory_order_relaxed);
+    }
+    static void decReferenceCountAndFreeIfNeeded(const HashlifeNodeBase *pointer) noexcept
+    {
+        if(pointer->referenceCounts.atomicReferenceCount.fetch_sub(1, std::memory_order_acq_rel)
+           == 1)
+        {
+            delete const_cast<HashlifeNodeBase *>(pointer);
+        }
+    }
+    static std::size_t getUseCount(const HashlifeNodeBase *pointer) noexcept
+    {
+        return pointer->referenceCounts.atomicReferenceCount.load(std::memory_order_relaxed);
+    }
+};
+
+template <>
+struct HashlifeNodeReferenceHelper<false> final // non-atomic
+{
+    static void incReferenceCount(const HashlifeNodeBase *pointer) noexcept
+    {
+        pointer->referenceCounts.nonAtomicReferenceCount++;
+    }
+    static void decReferenceCountAndFreeIfNeeded(const HashlifeNodeBase *pointer) noexcept
+    {
+        if(pointer->referenceCounts.nonAtomicReferenceCount-- == 1)
+            HashlifeNodeReferenceHelper<true>::decReferenceCountAndFreeIfNeeded(pointer);
+    }
+    static std::size_t getUseCount(const HashlifeNodeBase *pointer) noexcept
+    {
+        return pointer->referenceCounts.nonAtomicReferenceCount;
+    }
+};
+
 class HashlifeNonleafNode final : public HashlifeNodeBase
 {
 public:
@@ -183,7 +446,7 @@ public:
                         block::BlockStepGlobalState::stepSizeInGenerations :
                         1UL << (level - 1));
         }
-        std::shared_ptr<const HashlifeNodeBase> node;
+        HashlifeNodeReference<const HashlifeNodeBase, false> node;
         block::BlockStepGlobalState globalState;
         typedef util::Array<util::Array<util::Array<block::BlockStepExtraActions, levelSize>,
                                         levelSize>,
@@ -192,7 +455,7 @@ public:
         constexpr FutureState() : node(nullptr), globalState(), actions()
         {
         }
-        FutureState(std::shared_ptr<HashlifeNodeBase> node,
+        FutureState(HashlifeNodeReference<const HashlifeNodeBase, false> node,
                     block::BlockStepGlobalState globalState,
                     ActionsArray actions)
             : node(std::move(node)),
@@ -205,31 +468,35 @@ public:
         {
         }
     };
-    typedef util::Array<util::Array<util::Array<std::shared_ptr<const HashlifeNodeBase>, levelSize>,
-                                    levelSize>,
-                        levelSize> ChildNodesArray;
+    typedef util::
+        Array<util::Array<util::Array<HashlifeNodeReference<const HashlifeNodeBase, false>,
+                                      levelSize>,
+                          levelSize>,
+              levelSize> ChildNodesArray;
 
 private:
     const ChildNodesArray childNodes;
 
 public:
-    const std::shared_ptr<const HashlifeNodeBase> &getChildNode(util::Vector3U32 index) const
+    const HashlifeNodeReference<const HashlifeNodeBase, false> &getChildNode(
+        util::Vector3U32 index) const
     {
         return (constexprAssert(!isLeaf()), childNodes[index.x][index.y][index.z]);
     }
-    const std::shared_ptr<const HashlifeNodeBase> &getChildNode(util::Vector3I32 index) const
+    const HashlifeNodeReference<const HashlifeNodeBase, false> &getChildNode(
+        util::Vector3I32 index) const
     {
         return getChildNode(util::Vector3U32(index));
     }
     mutable FutureState futureState; // ignored for operator == and hash
-    HashlifeNonleafNode(std::shared_ptr<const HashlifeNodeBase> nxnynz,
-                        std::shared_ptr<const HashlifeNodeBase> nxnypz,
-                        std::shared_ptr<const HashlifeNodeBase> nxpynz,
-                        std::shared_ptr<const HashlifeNodeBase> nxpypz,
-                        std::shared_ptr<const HashlifeNodeBase> pxnynz,
-                        std::shared_ptr<const HashlifeNodeBase> pxnypz,
-                        std::shared_ptr<const HashlifeNodeBase> pxpynz,
-                        std::shared_ptr<const HashlifeNodeBase> pxpypz)
+    HashlifeNonleafNode(HashlifeNodeReference<const HashlifeNodeBase, false> nxnynz,
+                        HashlifeNodeReference<const HashlifeNodeBase, false> nxnypz,
+                        HashlifeNodeReference<const HashlifeNodeBase, false> nxpynz,
+                        HashlifeNodeReference<const HashlifeNodeBase, false> nxpypz,
+                        HashlifeNodeReference<const HashlifeNodeBase, false> pxnynz,
+                        HashlifeNodeReference<const HashlifeNodeBase, false> pxnypz,
+                        HashlifeNodeReference<const HashlifeNodeBase, false> pxpynz,
+                        HashlifeNodeReference<const HashlifeNodeBase, false> pxpypz)
         : HashlifeNodeBase((constexprAssert(nxnynz), nxnynz->level + 1),
                            nxnynz->blockSummary + nxnypz->blockSummary + nxpynz->blockSummary
                                + nxpypz->blockSummary + pxnynz->blockSummary + pxnypz->blockSummary
@@ -277,7 +544,7 @@ public:
             for(auto &j : i)
                 for(auto childNode : j)
                     retval = retval * 8191 ^ (retval >> 3)
-                             ^ std::hash<std::shared_ptr<const HashlifeNodeBase>>()(childNode);
+                             ^ std::hash<const HashlifeNodeBase *>()(childNode.get());
         return retval;
     }
 };
@@ -428,20 +695,24 @@ inline std::size_t HashlifeNodeBase::hash() const
         return getAsNonleaf(this)->hash();
 }
 
-inline std::shared_ptr<HashlifeNodeBase> HashlifeNodeBase::duplicate() const &
+inline HashlifeNodeReference<HashlifeNodeBase, false> HashlifeNodeBase::duplicate() const &
 {
     if(isLeaf())
-        return std::make_shared<HashlifeLeafNode>(*getAsLeaf(this));
+        return HashlifeNodeReference<HashlifeNodeBase, false>(
+            new HashlifeLeafNode(*getAsLeaf(this)));
     else
-        return std::make_shared<HashlifeNonleafNode>(*getAsNonleaf(this));
+        return HashlifeNodeReference<HashlifeNodeBase, false>(
+            new HashlifeNonleafNode(*getAsNonleaf(this)));
 }
 
-inline std::shared_ptr<HashlifeNodeBase> HashlifeNodeBase::duplicate() &&
+inline HashlifeNodeReference<HashlifeNodeBase, false> HashlifeNodeBase::duplicate() &&
 {
     if(isLeaf())
-        return std::make_shared<HashlifeLeafNode>(std::move(*getAsLeaf(this)));
+        return HashlifeNodeReference<HashlifeNodeBase, false>(
+            new HashlifeLeafNode(std::move(*getAsLeaf(this))));
     else
-        return std::make_shared<HashlifeNonleafNode>(std::move(*getAsNonleaf(this)));
+        return HashlifeNodeReference<HashlifeNodeBase, false>(
+            new HashlifeNonleafNode(std::move(*getAsNonleaf(this))));
 }
 }
 }

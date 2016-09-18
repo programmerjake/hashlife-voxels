@@ -34,22 +34,27 @@ void HashlifeGarbageCollectedHashtable::garbageCollect(
     std::size_t numberOfNodesLeftToCollect = nodes.size() - garbageCollectTargetNodeCount;
     for(std::size_t collectedCount = 1; collectedCount > 0;)
     {
-    	collectedCount = 0;
+        collectedCount = 0;
         for(auto iter = nodes.begin(); iter != nodes.end();)
         {
-        	auto &node = std::get<1>(*iter);
-        	if(node.unique())
-        	{
-        		collectedCount++;
-        		iter = nodes.erase(iter);
-        	}
-        	else
-        	{
-        		++iter;
-        	}
+            auto &node = std::get<1>(*iter);
+            if(!node.unique())
+            {
+                ++iter;
+                continue;
+            }
+            if(static_cast<HashlifeNodeReference<const HashlifeNodeBase, true>>(node).unique())
+            {
+                collectedCount++;
+                iter = nodes.erase(iter);
+            }
+            else
+            {
+                ++iter;
+            }
         }
         if(collectedCount >= numberOfNodesLeftToCollect)
-        	return;
+            return;
         numberOfNodesLeftToCollect -= collectedCount;
     }
 }
