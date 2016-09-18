@@ -386,6 +386,7 @@ public:
     {
         return *getAsNonleaf(&node);
     }
+    static void free(HashlifeNodeBase *node) noexcept;
 
 private:
     HashlifeNodeBase(LevelType level, const block::BlockSummary &blockSummary)
@@ -406,7 +407,7 @@ struct HashlifeNodeReferenceHelper<true> final // atomic
         if(pointer->referenceCounts.atomicReferenceCount.fetch_sub(1, std::memory_order_acq_rel)
            == 1)
         {
-            delete const_cast<HashlifeNodeBase *>(pointer);
+            HashlifeNodeBase::free(const_cast<HashlifeNodeBase *>(pointer));
         }
     }
     static std::size_t getUseCount(const HashlifeNodeBase *pointer) noexcept
@@ -713,6 +714,14 @@ inline HashlifeNodeReference<HashlifeNodeBase, false> HashlifeNodeBase::duplicat
     else
         return HashlifeNodeReference<HashlifeNodeBase, false>(
             new HashlifeNonleafNode(std::move(*getAsNonleaf(this))));
+}
+
+inline void HashlifeNodeBase::free(HashlifeNodeBase *node) noexcept
+{
+    if(node->isLeaf())
+        delete getAsLeaf(node);
+    else
+        delete getAsNonleaf(node);
 }
 }
 }
