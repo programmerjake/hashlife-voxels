@@ -265,10 +265,18 @@ int main()
     const block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
         lighting::Lighting::maxLight, world::Dimension::overworld()));
 #if 1
-    for(std::size_t i = 0; i < ballSize / 16; i++)
+    for(std::size_t i = 0, end = ballSize / 16; i < end; i++)
     {
+        {
+            std::ostringstream ss;
+            ss << i * 100 / (end - 1) << "% done";
+            logging::log(logging::Level::Info, "main", ss.str());
+        }
         theWorld->stepAndCollectGarbage(blockStepGlobalState);
     }
+    constexpr bool testStartupOnly = true;
+    if(testStartupOnly)
+        return 0;
 #endif
     struct GenerateRenderBuffersHasher
     {

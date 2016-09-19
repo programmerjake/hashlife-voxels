@@ -31,28 +31,31 @@ void HashlifeGarbageCollectedHashtable::garbageCollect(
 {
     if(!needGarbageCollect(garbageCollectTargetNodeCount))
         return;
-    std::size_t numberOfNodesLeftToCollect = nodes.size() - garbageCollectTargetNodeCount;
+    std::size_t numberOfNodesLeftToCollect = nodeCount - garbageCollectTargetNodeCount;
     for(std::size_t collectedCount = 1; collectedCount > 0;)
     {
         collectedCount = 0;
-        for(auto iter = nodes.begin(); iter != nodes.end();)
+        for(std::size_t bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++)
         {
-            auto &node = std::get<1>(*iter);
-            if(!node.unique())
+            for(auto **ppNode = &buckets[bucketIndex]; *ppNode != nullptr;
+                ppNode = &(*ppNode)->hashNext)
             {
-                ++iter;
-                continue;
-            }
-            if(static_cast<HashlifeNodeReference<const HashlifeNodeBase, true>>(node).unique())
-            {
+                HashlifeNodeReference<const HashlifeNodeBase, false> node(*ppNode);
+                if(node.useCount() > 1
+                   || node->referenceCounts.atomicReferenceCount.load(std::memory_order_relaxed)
+                          > 1)
+                {
+                    node.release();
+                    continue;
+                }
+                *ppNode = node->hashNext;
+                node->hashNext = nullptr;
                 collectedCount++;
-                iter = nodes.erase(iter);
-            }
-            else
-            {
-                ++iter;
+                if(*ppNode == nullptr)
+                    break;
             }
         }
+        nodeCount -= collectedCount;
         if(collectedCount >= numberOfNodesLeftToCollect)
             return;
         numberOfNodesLeftToCollect -= collectedCount;

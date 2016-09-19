@@ -7,3 +7,4 @@
 /oprofile_data/
 /Debug ThreadSanitizer/
 /Debug AddressSanitizer/
+/Debug NoAssert/

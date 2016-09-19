@@ -362,8 +362,7 @@ public:
 private:
     void expandRoot();
     const HashlifeNonleafNode::FutureState &getFilledFutureState(
-        HashlifeNodeReference<const HashlifeNodeBase, false> nodeIn,
-        const block::BlockStepGlobalState &stepGlobalState);
+        const HashlifeNodeBase *nodeIn, const block::BlockStepGlobalState &stepGlobalState);
 
 public:
     block::BlockStepExtraActions stepAndCollectGarbage(
@@ -382,7 +381,7 @@ public:
             expandRoot();
         } while(HashlifeNonleafNode::FutureState::getStepSizeInGenerations(rootNode->level)
                 < block::BlockStepGlobalState::stepSizeInGenerations);
-        auto &futureState = getFilledFutureState(rootNode, stepGlobalState);
+        auto &futureState = getFilledFutureState(rootNode.get(), stepGlobalState);
         constexprAssert(futureState.node != nullptr);
         constexprAssert(futureState.globalState == stepGlobalState);
         rootNode = futureState.node;
@@ -402,12 +401,11 @@ public:
 
 private:
     template <typename BlocksArray>
-    HashlifeNodeReference<const HashlifeNodeBase, false> setBlocks(
-        HashlifeNodeReference<const HashlifeNodeBase, false> node,
-        BlocksArray &&blocksArray,
-        util::Vector3I32 worldPosition,
-        util::Vector3I32 arrayPosition,
-        util::Vector3I32 size)
+    HashlifeNodeReference<const HashlifeNodeBase, false> setBlocks(const HashlifeNodeBase *node,
+                                                                   BlocksArray &&blocksArray,
+                                                                   util::Vector3I32 worldPosition,
+                                                                   util::Vector3I32 arrayPosition,
+                                                                   util::Vector3I32 size)
     {
         constexprAssert(size.min() >= 0);
         constexprAssert(arrayPosition.x + size.x <= static_cast<std::int32_t>(blocksArray.size()));
@@ -416,7 +414,7 @@ private:
         constexprAssert(arrayPosition.z + size.z
                         <= static_cast<std::int32_t>(blocksArray[0][0].size()));
         if(size.min() == 0)
-            return node;
+            return node->referenceFromThis<false>();
         constexprAssert(node->isPositionInside(worldPosition));
         constexprAssert(node->isPositionInside(worldPosition + size - util::Vector3I32(1)));
         if(node->isLeaf())
@@ -436,7 +434,7 @@ private:
                            || (inputPosition - worldPosition - size).max() >= 0)
                         {
                             blocks[position.x][position.y][position.z] =
-                                getAsLeaf(node.get())->getBlock(position);
+                                getAsLeaf(node)->getBlock(position);
                         }
                         else
                         {
@@ -449,7 +447,7 @@ private:
                     }
                 }
             }
-            return garbageCollectedHashtable.findOrAddNode(HashlifeLeafNode(blocks));
+            return garbageCollectedHashtable.findOrAddNode(std::move(blocks));
         }
         else
         {
@@ -472,18 +470,18 @@ private:
                         endInputPosition = min(endInputPosition, worldPosition + size);
                         if((endInputPosition - minInputPosition).min() > 0)
                             childNodes[position.x][position.y][position.z] =
-                                setBlocks(getAsNonleaf(node.get())->getChildNode(position),
+                                setBlocks(getAsNonleaf(node)->getChildNode(position).get(),
                                           std::forward<BlocksArray>(blocksArray),
                                           minInputPosition + offset,
                                           arrayPosition - worldPosition + minInputPosition,
                                           endInputPosition - minInputPosition);
                         else
                             childNodes[position.x][position.y][position.z] =
-                                getAsNonleaf(node.get())->getChildNode(position);
+                                getAsNonleaf(node)->getChildNode(position);
                     }
                 }
             }
-            return garbageCollectedHashtable.findOrAddNode(HashlifeNonleafNode(childNodes));
+            return garbageCollectedHashtable.findOrAddNode(std::move(childNodes));
         }
     }
 
@@ -500,8 +498,11 @@ public:
         while(!rootNode->isPositionInside(worldPosition)
               || !rootNode->isPositionInside(worldPosition + size - util::Vector3I32(1)))
             expandRoot();
-        rootNode = setBlocks(
-            rootNode, std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+        rootNode = setBlocks(rootNode.get(),
+                             std::forward<BlocksArray>(blocksArray),
+                             worldPosition,
+                             arrayPosition,
+                             size);
     }
 
 private:

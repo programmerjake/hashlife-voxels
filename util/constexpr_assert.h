@@ -40,7 +40,7 @@ struct ConstexprAssertFailed final
 };
 
 #ifdef NDEBUG
-#define constexprAssert(v) (static_cast<void>(sizeof((v), 0)))
+#define constexprAssert(v) (static_cast<void>(decltype((v) ? 0 : 0)()))
 #else
 #define constexprAssert(v)                                                            \
     ((v) ? static_cast<void>(0) :                                                     \

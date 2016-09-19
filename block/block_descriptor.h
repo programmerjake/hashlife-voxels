@@ -208,7 +208,7 @@ struct BlockStepExtraAction final
 
 struct BlockStepExtraActions final
 {
-    std::unique_ptr<std::list<BlockStepExtraAction>> actions;
+    util::Optional<std::list<BlockStepExtraAction>> actions;
     void merge(BlockStepExtraActions newActions)
     {
         if(newActions.actions)
@@ -227,12 +227,11 @@ struct BlockStepExtraActions final
     {
     }
     explicit BlockStepExtraActions(std::list<BlockStepExtraAction> actions)
-        : actions(new std::list<BlockStepExtraAction>(std::move(actions)))
+        : actions(util::inPlace, std::move(actions))
     {
     }
-    explicit BlockStepExtraActions(BlockStepExtraAction action) : actions()
+    explicit BlockStepExtraActions(BlockStepExtraAction action) : actions(util::inPlace)
     {
-        actions.reset(new std::list<BlockStepExtraAction>);
         actions->push_back(std::move(action));
     }
     BlockStepExtraActions &operator=(BlockStepExtraActions rt)
@@ -245,7 +244,7 @@ struct BlockStepExtraActions final
     {
         if(rt.actions)
         {
-            actions.reset(new std::list<BlockStepExtraAction>(*rt.actions));
+            actions.emplace(*rt.actions);
         }
     }
     BlockStepExtraActions &addOffset(util::Vector3I32 offset) &

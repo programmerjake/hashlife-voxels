@@ -28,6 +28,7 @@
 #include "../block/block_descriptor.h"
 #include "../util/constexpr_assert.h"
 #include "../util/constexpr_array.h"
+#include "../util/hash.h"
 #include <type_traits>
 #include <list>
 #include <cstdint>
@@ -148,6 +149,7 @@ class HashlifeNodeReference final : public HashlifeNodeReferenceBase<IsAtomic>
     template <typename, bool>
     friend class HashlifeNodeReference;
     friend class HashlifeNodeBase;
+    friend class HashlifeGarbageCollectedHashtable;
     static_assert(std::is_base_of<HashlifeNodeBase, typename std::remove_const<T>::type>::value,
                   "");
 
@@ -242,6 +244,7 @@ class HashlifeNodeBase
     friend class HashlifeNodeReferenceBase;
     template <bool>
     friend struct HashlifeNodeReferenceHelper;
+    friend class HashlifeGarbageCollectedHashtable;
 
 private:
     struct ReferenceCounts final
@@ -255,6 +258,7 @@ private:
         }
     };
     mutable ReferenceCounts referenceCounts;
+    mutable const HashlifeNodeBase *hashNext = nullptr;
 
 public:
     static constexpr std::int32_t levelSize = 2;
@@ -339,10 +343,6 @@ public:
                                 getChildPosition(position.y),
                                 getChildPosition(position.z));
     }
-    bool operator!=(const HashlifeNodeBase &rt) const
-    {
-        return !operator==(rt);
-    }
     block::Block get(util::Vector3I32 position) const;
     const HashlifeNodeBase *get(util::Vector3I32 position, LevelType returnedLevel) const;
     HashlifeNodeBase *get(util::Vector3I32 position, LevelType returnedLevel)
@@ -350,8 +350,6 @@ public:
         return const_cast<HashlifeNodeBase *>(
             static_cast<const HashlifeNodeBase *>(this)->get(position, returnedLevel));
     }
-    bool operator==(const HashlifeNodeBase &rt) const;
-    std::size_t hash() const;
     HashlifeNodeReference<HashlifeNodeBase, false> duplicate() const &;
     HashlifeNodeReference<HashlifeNodeBase, false> duplicate() && ;
     template <bool IsAtomic>
@@ -528,25 +526,18 @@ public:
     {
         static_assert(levelSize == 2, "");
     }
-    bool operator!=(const HashlifeNonleafNode &rt) const
+    static std::size_t hashNode(const ChildNodesArray &childNodes)
     {
-        return !operator==(rt);
-    }
-    bool operator==(const HashlifeNonleafNode &rt) const
-    {
-        return (constexprAssert(!isLeaf() && !rt.isLeaf()),
-                level == rt.level && childNodes == rt.childNodes);
-    }
-    std::size_t hash() const
-    {
-        constexprAssert(!isLeaf());
-        std::size_t retval = level;
+        util::Hasher hasher;
         for(auto &i : childNodes)
             for(auto &j : i)
                 for(auto childNode : j)
-                    retval = retval * 8191 ^ (retval >> 3)
-                             ^ std::hash<const HashlifeNodeBase *>()(childNode.get());
-        return retval;
+                    hasher = next(hasher, childNode.get());
+        return finish(hasher);
+    }
+    static bool equalsNode(const HashlifeNodeBase *node, const ChildNodesArray &childNodes)
+    {
+        return !node->isLeaf() && getAsNonleaf(node)->childNodes == childNodes;
     }
 };
 
@@ -625,23 +616,18 @@ public:
                            blocks[1][1][1])
     {
     }
-    bool operator!=(const HashlifeLeafNode &rt) const
+    static std::size_t hashNode(const BlocksArray &blocks)
     {
-        return !operator==(rt);
-    }
-    bool operator==(const HashlifeLeafNode &rt) const
-    {
-        return (constexprAssert(isLeaf() && rt.isLeaf()), blocks == rt.blocks);
-    }
-    std::size_t hash() const
-    {
-        constexprAssert(isLeaf());
-        std::size_t retval = 0;
+        util::Hasher hasher;
         for(auto &i : blocks)
             for(auto &j : i)
                 for(auto &block : j)
-                    retval = retval * 8191 ^ (retval >> 3) ^ std::hash<block::Block>()(block);
-        return retval;
+                    hasher = next(hasher, block.value);
+        return finish(hasher);
+    }
+    static bool equalsNode(const HashlifeNodeBase *node, const BlocksArray &blocks)
+    {
+        return node->isLeaf() && getAsLeaf(node)->blocks == blocks;
     }
 };
 
@@ -682,20 +668,6 @@ inline const HashlifeNodeBase *HashlifeNodeBase::get(util::Vector3I32 position,
                                                 ->get(getChildPosition(position), returnedLevel));
 }
 
-inline bool HashlifeNodeBase::operator==(const HashlifeNodeBase &rt) const
-{
-    return level == rt.level && (isLeaf() ? getAsLeaf(this)->operator==(getAsLeaf(rt)) :
-                                            getAsNonleaf(this)->operator==(getAsNonleaf(rt)));
-}
-
-inline std::size_t HashlifeNodeBase::hash() const
-{
-    if(isLeaf())
-        return getAsLeaf(this)->hash();
-    else
-        return getAsNonleaf(this)->hash();
-}
-
 inline HashlifeNodeReference<HashlifeNodeBase, false> HashlifeNodeBase::duplicate() const &
 {
     if(isLeaf())
@@ -725,18 +697,6 @@ inline void HashlifeNodeBase::free(HashlifeNodeBase *node) noexcept
 }
 }
 }
-}
-
-namespace std
-{
-template <>
-struct hash<programmerjake::voxels::world::HashlifeNodeBase>
-{
-    std::size_t operator()(const programmerjake::voxels::world::HashlifeNodeBase &v) const
-    {
-        return v.hash();
-    }
-};
 }
 
 #endif /* WORLD_HASHLIFE_NODE_H_ */
