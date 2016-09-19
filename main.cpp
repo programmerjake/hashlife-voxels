@@ -51,7 +51,7 @@ namespace
 struct MyBlock final : public block::BlockDescriptor
 {
     static constexpr std::size_t stateCount =
-        block::BlockStepGlobalState::stepSizeInGenerations * 5 * 2;
+        block::BlockStepGlobalState::stepSizeInGenerations * 10 * 2;
     const std::size_t state;
     explicit MyBlock(std::size_t state)
         : BlockDescriptor(
@@ -184,7 +184,7 @@ int main()
 #endif
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 100;
+    constexpr std::int32_t ballSize = 50;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {
@@ -274,7 +274,7 @@ int main()
         }
         theWorld->stepAndCollectGarbage(blockStepGlobalState);
     }
-    constexpr bool testStartupOnly = true;
+    constexpr bool testStartupOnly = false;
     if(testStartupOnly)
         return 0;
 #endif

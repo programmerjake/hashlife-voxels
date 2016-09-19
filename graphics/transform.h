@@ -24,6 +24,7 @@
 
 #include "../util/vector.h"
 #include "../util/matrix.h"
+#include "../world/position.h"
 
 namespace programmerjake
 {
@@ -139,10 +140,20 @@ struct Transform final
     {
         return transform.positionMatrix.apply(v);
     }
-    friend constexpr util::Vector3F transformNormal(const Transform &transform,
-                                                    util::Vector3F v) noexcept
+    friend constexpr world::Position3F transform(const Transform &transform,
+                                                 world::Position3F v) noexcept
     {
-        return transform.normalMatrix.apply(v).normalizeOrZero();
+        return world::Position3F(transform.positionMatrix.apply(static_cast<util::Vector3F>(v)),
+                                 v.d);
+    }
+    friend constexpr util::Vector3F transformNormalUnnormalized(const Transform &transform,
+                                                                util::Vector3F v) noexcept
+    {
+        return transform.normalMatrix.apply(v);
+    }
+    friend util::Vector3F transformNormal(const Transform &transform, util::Vector3F v) noexcept
+    {
+        return transformNormalUnnormalized(transform, v).normalizeOrZero();
     }
     friend constexpr util::Matrix4x4F transform(const Transform &a,
                                                 const util::Matrix4x4F &b) noexcept

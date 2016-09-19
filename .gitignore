@@ -8,3 +8,4 @@
 /Debug ThreadSanitizer/
 /Debug AddressSanitizer/
 /Debug NoAssert/
+/perf.data

@@ -33,7 +33,7 @@ namespace voxels
 namespace world
 {
 template <typename T>
-struct Position3 : private util::Vector3<T>
+struct Position3 : public util::Vector3<T>
 {
     using util::Vector3<T>::x;
     using util::Vector3<T>::y;
@@ -55,10 +55,6 @@ struct Position3 : private util::Vector3<T>
     constexpr explicit Position3(const Position3<U> &v)
         : util::Vector3<T>(v), d(v.d)
     {
-    }
-    constexpr operator const util::Vector3<T> &() const noexcept
-    {
-        return *static_cast<const util::Vector3<T> *>(this);
     }
     template <typename U>
     friend void operator+(const Position3<U> &a, const Position3<U> &b);

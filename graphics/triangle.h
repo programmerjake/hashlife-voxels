@@ -161,7 +161,7 @@ struct Vertex : public VertexWithoutNormal
           normalZ(normal.z)
     {
     }
-    friend constexpr Vertex transform(const Transform &tform, const Vertex &vertex) noexcept
+    friend Vertex transform(const Transform &tform, const Vertex &vertex) noexcept
     {
         return Vertex(transform(tform, vertex.getPosition()),
                       vertex.getTextureCoordinates(),
@@ -223,7 +223,7 @@ struct Triangle
         : vertices{vertex1, vertex2, vertex3}, texture(texture)
     {
     }
-    friend constexpr Triangle transform(const Transform &tform, const Triangle &triangle) noexcept
+    friend Triangle transform(const Transform &tform, const Triangle &triangle) noexcept
     {
         return Triangle(transform(tform, triangle.vertices[0]),
                         transform(tform, triangle.vertices[1]),
