@@ -29,6 +29,7 @@
 #include "../util/vector.h"
 #include "../world/position.h"
 #include "../util/constexpr_array.h"
+#include "../util/hash.h"
 #include "../graphics/color.h"
 #include <functional>
 #include <vector>
@@ -102,6 +103,23 @@ struct BlockStepInput final
     constexpr const Block &operator[](util::Vector3I32 index) const noexcept
     {
         return blocks[index.x + 1][index.y + 1][index.z + 1];
+    }
+    bool operator==(const BlockStepInput &rt) const
+    {
+        return blocks == rt.blocks;
+    }
+    bool operator!=(const BlockStepInput &rt) const
+    {
+        return !operator==(rt);
+    }
+    std::size_t hash() const
+    {
+        util::Hasher hasher;
+        for(auto &i : blocks)
+            for(auto &j : i)
+                for(auto &block : j)
+                    hasher = next(hasher, block.value);
+        return finish(hasher);
     }
 };
 
@@ -917,6 +935,45 @@ public:
             }
         }
         return lighting::BlockLighting(blocks, stepGlobalState.lightingGlobalProperties);
+    }
+};
+
+class BlockStepCache final
+{
+    BlockStepCache(const BlockStepCache &) = delete;
+    BlockStepCache &operator=(const BlockStepCache &) = delete;
+
+private:
+    static constexpr std::size_t cacheSize = static_cast<std::size_t>(1) << 16;
+    static std::size_t getHash(const BlockStepInput &stepInput,
+                               const BlockStepGlobalState &stepGlobalState)
+    {
+        return stepInput.hash() + stepGlobalState.hash();
+    }
+    struct Entry
+    {
+        BlockStepInput input;
+        BlockStepGlobalState globalState;
+        util::Optional<BlockStepFullOutput> output;
+    };
+    Entry *entries;
+
+public:
+    BlockStepCache() : entries(new Entry[cacheSize]())
+    {
+    }
+    ~BlockStepCache()
+    {
+        delete[] entries;
+    }
+    const BlockStepFullOutput &get(const BlockStepInput &input,
+                                   const BlockStepGlobalState &globalState)
+    {
+        std::size_t entryIndex = getHash(input, globalState) % cacheSize;
+        auto &entry = entries[entryIndex];
+        if(!entry.output || entry.globalState != globalState || entry.input != input)
+            entry.output.emplace(BlockDescriptor::step(input, globalState));
+        return *entry.output;
     }
 };
 }

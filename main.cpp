@@ -184,7 +184,7 @@ int main()
 #endif
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 200;
+    constexpr std::int32_t ballSize = 100;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {

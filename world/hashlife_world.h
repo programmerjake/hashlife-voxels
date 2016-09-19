@@ -336,6 +336,10 @@ private:
     HashlifeNodeReference<const HashlifeNodeBase, false> rootNode;
     std::unordered_map<RenderCacheKey, RenderCacheEntry, RenderCacheKeyHasher> renderCache;
     std::list<const RenderCacheKey *> renderCacheEntryList;
+#if 0
+#define PROGRAMMERJAKE_VOXELS_WORLD_HASHLIFEWORLD_USE_BLOCKSTEPCACHE
+    block::BlockStepCache blockStepCache;
+#endif
 
 public:
     explicit HashlifeWorld(PrivateAccessTag);

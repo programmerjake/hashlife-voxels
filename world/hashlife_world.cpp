@@ -121,10 +121,15 @@ const HashlifeNonleafNode::FutureState &HashlifeWorld::getFilledFutureState(
                             }
                         }
                     }
+#if defined(PROGRAMMERJAKE_VOXELS_WORLD_HASHLIFEWORLD_USE_BLOCKSTEPCACHE)
+                    auto &stepResult = blockStepCache.get(blockStepInput, stepGlobalState);
+#else
                     auto stepResult = block::BlockDescriptor::step(blockStepInput, stepGlobalState);
+#endif
                     futureNode[x][y][z] = stepResult.block;
                     futureState.actions[x][y][z] +=
-                        std::move(stepResult.extraActions).addOffset(blockStepInputCenter);
+                        block::BlockStepExtraActions(std::forward<decltype(stepResult)>(stepResult)
+                                                  .extraActions).addOffset(blockStepInputCenter);
                 }
             }
         }
@@ -170,9 +175,7 @@ const HashlifeNonleafNode::FutureState &HashlifeWorld::getFilledFutureState(
                         }
                     }
                     auto resultNode = garbageCollectedHashtable.findOrAddNode(std::move(input));
-                    auto &result = getFilledFutureState(
-                        resultNode.get(),
-                        stepGlobalState);
+                    auto &result = getFilledFutureState(resultNode.get(), stepGlobalState);
                     constexprAssert(result.node->level == node->level - 2);
                     for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
                         position.x++)
@@ -287,8 +290,7 @@ const HashlifeNonleafNode::FutureState &HashlifeWorld::getFilledFutureState(
                                 }
                             }
                             output[chunkPos.x][chunkPos.y][chunkPos.z] =
-                                garbageCollectedHashtable.findOrAddNode(
-                                        std::move(childNodes));
+                                garbageCollectedHashtable.findOrAddNode(std::move(childNodes));
                         }
                         constexprAssert(output[chunkPos.x][chunkPos.y][chunkPos.z]->level
                                         == node->level - 2);
@@ -323,9 +325,7 @@ const HashlifeNonleafNode::FutureState &HashlifeWorld::getFilledFutureState(
                             }
                         }
                         auto resultNode = garbageCollectedHashtable.findOrAddNode(std::move(input));
-                        auto &result = getFilledFutureState(
-                            resultNode.get(),
-                            stepGlobalState);
+                        auto &result = getFilledFutureState(resultNode.get(), stepGlobalState);
                         constexprAssert(result.node->level == node->level - 2);
                         for(util::Vector3I32 position(0); position.x < HashlifeNodeBase::levelSize;
                             position.x++)
