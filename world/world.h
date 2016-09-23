@@ -23,6 +23,9 @@
 #define WORLD_WORLD_H_
 
 #include "hashlife_world.h"
+#include "dimension.h"
+#include <limits>
+#include <memory>
 
 namespace programmerjake
 {
@@ -32,10 +35,60 @@ namespace world
 {
 class World final
 {
-public:
-    std::shared_ptr<HashlifeWorld> hashlifeWorld;
-    World() : hashlifeWorld(HashlifeWorld::make())
+private:
+    struct PrivateAccess final
     {
+        friend class World;
+
+    private:
+        PrivateAccess() = default;
+    };
+
+private:
+    DimensionMap<std::shared_ptr<HashlifeWorld>> hashlifeWorlds;
+
+private:
+    const std::shared_ptr<HashlifeWorld> &getOrMakeHashlifeWorld(Dimension dimension)
+    {
+        auto &retval = hashlifeWorlds[dimension];
+        if(!retval)
+            retval = HashlifeWorld::make();
+        return retval;
+    }
+    std::shared_ptr<HashlifeWorld> getHashlifeWorld(Dimension dimension) const noexcept
+    {
+        auto iter = hashlifeWorlds.find(dimension);
+        if(iter == hashlifeWorlds.end())
+            return nullptr;
+        return std::get<1>(*iter);
+    }
+
+public:
+    World(PrivateAccess) : hashlifeWorlds()
+    {
+        hashlifeWorlds[Dimension::overworld()] = HashlifeWorld::make();
+    }
+    static std::shared_ptr<World> make()
+    {
+        return std::make_shared<World>(PrivateAccess());
+    }
+    template <typename BlocksArray>
+    void setBlocks(BlocksArray &&blocksArray,
+                   Position3I32 worldPosition,
+                   util::Vector3I32 arrayPosition,
+                   util::Vector3I32 size)
+    {
+        getOrMakeHashlifeWorld(worldPosition.d)
+            ->setBlocks(std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+    }
+    template <typename BlocksArray>
+    void getBlocks(BlocksArray &&blocksArray,
+                   Position3I32 worldPosition,
+                   util::Vector3I32 arrayPosition,
+                   util::Vector3I32 size)
+    {
+        getOrMakeHashlifeWorld(worldPosition.d)
+            ->getBlocks(std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
     }
 };
 }

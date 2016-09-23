@@ -43,7 +43,7 @@ struct Lighting final
     static_assert(maxLight == world::Dimension::Properties::maxLight, "");
     static constexpr float toFloat(LightValueType v)
     {
-        return static_cast<float>(static_cast<int>(v)) / static_cast<int>(maxLight);
+        return static_cast<float>(static_cast<int>(v)) * static_cast<float>(1.0 / static_cast<int>(maxLight));
     }
     static constexpr LightValueType ensureInValidRange(LightValueType v)
     {
