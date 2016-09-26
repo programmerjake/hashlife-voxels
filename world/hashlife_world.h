@@ -376,6 +376,10 @@ public:
             HashlifeNodeReference<const HashlifeNodeBase, true>(rootNode), PrivateAccessTag());
         return retval;
     }
+    bool isSame(const std::shared_ptr<const Snapshot> &snapshot) const noexcept
+    {
+        return snapshot->rootNode == rootNode;
+    }
     static std::shared_ptr<HashlifeWorld> make()
     {
         return std::make_shared<HashlifeWorld>(PrivateAccessTag());

@@ -117,13 +117,13 @@ public:
     friend bool operator==(const HashlifeNodeReferenceBase<IsAtomic> &a,
                            const HashlifeNodeReferenceBase<IsAtomic2> &b) noexcept
     {
-        return a.pointer == b.pointer;
+        return a.pointer == b;
     }
     template <bool IsAtomic2>
     friend bool operator!=(const HashlifeNodeReferenceBase<IsAtomic> &a,
                            const HashlifeNodeReferenceBase<IsAtomic2> &b) noexcept
     {
-        return a.pointer != b.pointer;
+        return a.pointer != b;
     }
     friend bool operator==(std::nullptr_t, const HashlifeNodeReferenceBase<IsAtomic> &v) noexcept
     {
@@ -140,6 +140,26 @@ public:
     friend bool operator!=(const HashlifeNodeReferenceBase<IsAtomic> &v, std::nullptr_t) noexcept
     {
         return v.pointer != nullptr;
+    }
+    friend bool operator==(const HashlifeNodeBase *other,
+                           const HashlifeNodeReferenceBase<IsAtomic> &v) noexcept
+    {
+        return v.pointer == other;
+    }
+    friend bool operator!=(const HashlifeNodeBase *other,
+                           const HashlifeNodeReferenceBase<IsAtomic> &v) noexcept
+    {
+        return v.pointer != other;
+    }
+    friend bool operator==(const HashlifeNodeReferenceBase<IsAtomic> &v,
+                           const HashlifeNodeBase *other) noexcept
+    {
+        return v.pointer == other;
+    }
+    friend bool operator!=(const HashlifeNodeReferenceBase<IsAtomic> &v,
+                           const HashlifeNodeBase *other) noexcept
+    {
+        return v.pointer != other;
     }
 };
 

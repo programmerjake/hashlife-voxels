@@ -378,7 +378,7 @@ public:
         auto *element = getElement(dimension);
         if(!element || !*element)
             return end();
-        return iterator(dimension.value, &elements);
+        return const_iterator(dimension.value, &elements);
     }
     std::pair<iterator, iterator> equal_range(Dimension dimension) noexcept
     {

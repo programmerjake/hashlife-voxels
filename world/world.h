@@ -24,8 +24,14 @@
 
 #include "hashlife_world.h"
 #include "dimension.h"
+#include "../util/constexpr_assert.h"
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <condition_variable>
+#include "../threading/threading.h"
+#include <functional>
+#include <deque>
 
 namespace programmerjake
 {
@@ -43,31 +49,101 @@ private:
     private:
         PrivateAccess() = default;
     };
-
-private:
-    DimensionMap<std::shared_ptr<HashlifeWorld>> hashlifeWorlds;
-
-private:
-    const std::shared_ptr<HashlifeWorld> &getOrMakeHashlifeWorld(Dimension dimension)
+    class WorkQueueItemState final
     {
-        auto &retval = hashlifeWorlds[dimension];
+    public:
+        enum State
+        {
+            Queued,
+            Finished,
+            Canceled
+        };
+
+    private:
+        std::mutex lock;
+        std::condition_variable cond;
+        State state;
+
+    public:
+        explicit WorkQueueItemState(State state = Queued) : lock(), cond(), state(state)
+        {
+        }
+        State get()
+        {
+            std::unique_lock<std::mutex> lockIt(lock);
+            return state;
+        }
+        State wait()
+        {
+            std::unique_lock<std::mutex> lockIt(lock);
+            while(state == Queued)
+                cond.wait(lockIt);
+            return state;
+        }
+        void cancel()
+        {
+            std::unique_lock<std::mutex> lockIt(lock);
+            constexprAssert(state == Queued);
+            state = Canceled;
+            cond.notify_all();
+        }
+        void finish()
+        {
+            std::unique_lock<std::mutex> lockIt(lock);
+            constexprAssert(state == Queued);
+            state = Finished;
+            cond.notify_all();
+        }
+    };
+    template <typename FunctionType>
+    struct WorkQueueItem final
+    {
+        std::function<FunctionType> function;
+        std::shared_ptr<WorkQueueItemState> state = std::make_shared<WorkQueueItemState>();
+        explicit WorkQueueItem(std::function<FunctionType> function) : function(std::move(function))
+        {
+        }
+    };
+    struct DimensionData final
+    {
+        std::mutex snapshotLock;
+        std::shared_ptr<const HashlifeWorld::Snapshot> snapshot;
+        threading::Thread moveThread;
+        std::mutex moveThreadLock;
+        std::condition_variable moveThreadCond;
+        typedef void MoveThreadWorkQueueFunction(
+            const std::shared_ptr<HashlifeWorld> &hashlifeWorld);
+        std::deque<WorkQueueItem<MoveThreadWorkQueueFunction>> moveThreadWorkQueue;
+        bool moveThreadDone = false;
+    };
+
+private:
+    static void moveThreadFn(std::shared_ptr<DimensionData> dimensionData) noexcept;
+    static std::shared_ptr<WorkQueueItemState> scheduleOnMoveThread(
+        const std::shared_ptr<DimensionData> &dimensionData,
+        std::function<DimensionData::MoveThreadWorkQueueFunction> function);
+    static void runOnMoveThread(const std::shared_ptr<DimensionData> &dimensionData,
+                                std::function<DimensionData::MoveThreadWorkQueueFunction> function,
+                                WorkQueueItemState::State &resultState);
+    static std::shared_ptr<DimensionData> makeDimensionData();
+    std::shared_ptr<DimensionData> getOrMakeDimensionData(Dimension dimension)
+    {
+        std::unique_lock<std::mutex> lockIt(dimensionDataMapLock);
+        auto &retval = dimensionDataMap[dimension];
         if(!retval)
-            retval = HashlifeWorld::make();
+            retval = makeDimensionData();
         return retval;
     }
-    std::shared_ptr<HashlifeWorld> getHashlifeWorld(Dimension dimension) const noexcept
-    {
-        auto iter = hashlifeWorlds.find(dimension);
-        if(iter == hashlifeWorlds.end())
-            return nullptr;
-        return std::get<1>(*iter);
-    }
+
+private:
+    DimensionMap<std::shared_ptr<DimensionData>> dimensionDataMap;
+    std::mutex dimensionDataMapLock;
 
 public:
-    World(PrivateAccess) : hashlifeWorlds()
+    World(PrivateAccess) : dimensionDataMap()
     {
-        hashlifeWorlds[Dimension::overworld()] = HashlifeWorld::make();
     }
+    ~World();
     static std::shared_ptr<World> make()
     {
         return std::make_shared<World>(PrivateAccess());
@@ -78,8 +154,17 @@ public:
                    util::Vector3I32 arrayPosition,
                    util::Vector3I32 size)
     {
-        getOrMakeHashlifeWorld(worldPosition.d)
-            ->setBlocks(std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+        auto dimensionData = getOrMakeDimensionData(worldPosition.d);
+        WorkQueueItemState::State resultState;
+        runOnMoveThread(
+            dimensionData,
+            [&](const std::shared_ptr<HashlifeWorld> &hashlifeWorld) noexcept
+            {
+                hashlifeWorld->setBlocks(
+                    std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+            },
+            resultState);
+        constexprAssert(resultState == WorkQueueItemState::Finished);
     }
     template <typename BlocksArray>
     void getBlocks(BlocksArray &&blocksArray,
@@ -87,8 +172,23 @@ public:
                    util::Vector3I32 arrayPosition,
                    util::Vector3I32 size)
     {
-        getOrMakeHashlifeWorld(worldPosition.d)
-            ->getBlocks(std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+        auto dimensionData = getOrMakeDimensionData(worldPosition.d);
+        WorkQueueItemState::State resultState;
+        runOnMoveThread(
+            dimensionData,
+            [&](const std::shared_ptr<HashlifeWorld> &hashlifeWorld) noexcept
+            {
+                hashlifeWorld->getBlocks(
+                    std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+            },
+            resultState);
+        constexprAssert(resultState == WorkQueueItemState::Finished);
+    }
+    std::shared_ptr<const HashlifeWorld::Snapshot> getDimensionSnapshot(Dimension dimension)
+    {
+        auto dimensionData = getOrMakeDimensionData(dimension);
+        std::unique_lock<std::mutex> lockIt(dimensionData->snapshotLock);
+        return dimensionData->snapshot;
     }
 };
 }
