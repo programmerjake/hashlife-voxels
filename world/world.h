@@ -106,32 +106,38 @@ private:
     };
     struct DimensionData final
     {
+        const Dimension dimension;
         std::mutex snapshotLock;
         std::shared_ptr<const HashlifeWorld::Snapshot> snapshot;
         threading::Thread moveThread;
         std::mutex moveThreadLock;
         std::condition_variable moveThreadCond;
         typedef void MoveThreadWorkQueueFunction(
-            const std::shared_ptr<HashlifeWorld> &hashlifeWorld);
+            const std::shared_ptr<HashlifeWorld> &hashlifeWorld,
+            block::BlockStepGlobalState &blockStepGlobalState);
         std::deque<WorkQueueItem<MoveThreadWorkQueueFunction>> moveThreadWorkQueue;
         bool moveThreadDone = false;
+        bool moveThreadStarted = false;
+        explicit DimensionData(Dimension dimension) : dimension(dimension)
+        {
+        }
     };
 
 private:
-    static void moveThreadFn(std::shared_ptr<DimensionData> dimensionData) noexcept;
+    void moveThreadFn(std::shared_ptr<DimensionData> dimensionData) noexcept;
     static std::shared_ptr<WorkQueueItemState> scheduleOnMoveThread(
         const std::shared_ptr<DimensionData> &dimensionData,
         std::function<DimensionData::MoveThreadWorkQueueFunction> function);
     static void runOnMoveThread(const std::shared_ptr<DimensionData> &dimensionData,
                                 std::function<DimensionData::MoveThreadWorkQueueFunction> function,
                                 WorkQueueItemState::State &resultState);
-    static std::shared_ptr<DimensionData> makeDimensionData();
+    std::shared_ptr<DimensionData> makeDimensionData(Dimension dimension);
     std::shared_ptr<DimensionData> getOrMakeDimensionData(Dimension dimension)
     {
         std::unique_lock<std::mutex> lockIt(dimensionDataMapLock);
         auto &retval = dimensionDataMap[dimension];
         if(!retval)
-            retval = makeDimensionData();
+            retval = makeDimensionData(dimension);
         return retval;
     }
 
@@ -158,7 +164,8 @@ public:
         WorkQueueItemState::State resultState;
         runOnMoveThread(
             dimensionData,
-            [&](const std::shared_ptr<HashlifeWorld> &hashlifeWorld) noexcept
+            [&](const std::shared_ptr<HashlifeWorld> &hashlifeWorld,
+                block::BlockStepGlobalState &blockStepGlobalState) noexcept
             {
                 hashlifeWorld->setBlocks(
                     std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
@@ -176,7 +183,8 @@ public:
         WorkQueueItemState::State resultState;
         runOnMoveThread(
             dimensionData,
-            [&](const std::shared_ptr<HashlifeWorld> &hashlifeWorld) noexcept
+            [&](const std::shared_ptr<HashlifeWorld> &hashlifeWorld,
+                block::BlockStepGlobalState &blockStepGlobalState) noexcept
             {
                 hashlifeWorld->getBlocks(
                     std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);

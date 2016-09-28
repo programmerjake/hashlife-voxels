@@ -19,6 +19,9 @@
  *
  */
 #include "world.h"
+#include <chrono>
+#include <cmath>
+#include "../threading/threading.h"
 
 namespace programmerjake
 {
@@ -29,26 +32,53 @@ namespace world
 void World::moveThreadFn(std::shared_ptr<DimensionData> dimensionData) noexcept
 {
     auto hashlifeWorld = HashlifeWorld::make();
+    block::BlockStepGlobalState blockStepGlobalState(lighting::Lighting::GlobalProperties(
+        lighting::Lighting::maxLight, dimensionData->dimension));
+    const auto tickDuration = std::chrono::nanoseconds(1000000000UL / 20); // 20 ticks/second
+    auto stepEndTime = std::chrono::steady_clock::now() + tickDuration;
     std::unique_lock<std::mutex> lockIt(dimensionData->moveThreadLock);
+    {
+        dimensionData->moveThreadStarted = true;
+        std::unique_lock<std::mutex> lockedSnapshot(dimensionData->snapshotLock);
+        dimensionData->snapshot = hashlifeWorld->makeSnapshot();
+        lockedSnapshot.unlock();
+        dimensionData->moveThreadCond.notify_all();
+    }
     while(true)
     {
         if(dimensionData->moveThreadDone)
             break;
-        while(!dimensionData->moveThreadWorkQueue.empty())
+        if(!dimensionData->moveThreadWorkQueue.empty())
         {
             auto item = std::move(dimensionData->moveThreadWorkQueue.front());
             dimensionData->moveThreadWorkQueue.pop_front();
             lockIt.unlock();
-            item.function(hashlifeWorld);
+            item.function(hashlifeWorld, blockStepGlobalState);
             lockIt.lock();
             std::unique_lock<std::mutex> lockedSnapshot(dimensionData->snapshotLock);
             if(!hashlifeWorld->isSame(dimensionData->snapshot))
                 dimensionData->snapshot = hashlifeWorld->makeSnapshot();
             lockedSnapshot.unlock();
             item.state->finish();
+            continue;
         }
-#warning finish
-        constexprAssert(false);
+        if(std::chrono::steady_clock::now() >= stepEndTime)
+        {
+            lockIt.unlock();
+            hashlifeWorld->stepAndCollectGarbage(blockStepGlobalState)
+                .run(*this, dimensionData->dimension);
+            lockIt.lock();
+            std::unique_lock<std::mutex> lockedSnapshot(dimensionData->snapshotLock);
+            if(!hashlifeWorld->isSame(dimensionData->snapshot))
+                dimensionData->snapshot = hashlifeWorld->makeSnapshot();
+            lockedSnapshot.unlock();
+            auto currentTime = std::chrono::steady_clock::now();
+            stepEndTime += tickDuration;
+            if(stepEndTime < currentTime)
+                stepEndTime = currentTime;
+            continue;
+        }
+        dimensionData->moveThreadCond.wait(lockIt);
     }
     dimensionData->moveThreadDone = true;
     while(!dimensionData->moveThreadWorkQueue.empty())
@@ -56,7 +86,7 @@ void World::moveThreadFn(std::shared_ptr<DimensionData> dimensionData) noexcept
         dimensionData->moveThreadWorkQueue.front().state->cancel();
         dimensionData->moveThreadWorkQueue.pop_front();
     }
-#warning finish
+    dimensionData->moveThreadCond.notify_all();
 }
 
 std::shared_ptr<World::WorkQueueItemState> World::scheduleOnMoveThread(
@@ -80,16 +110,33 @@ void World::runOnMoveThread(const std::shared_ptr<DimensionData> &dimensionData,
     resultState = scheduleOnMoveThread(dimensionData, std::move(function))->wait();
 }
 
-std::shared_ptr<World::DimensionData> World::makeDimensionData()
+std::shared_ptr<World::DimensionData> World::makeDimensionData(Dimension dimension)
 {
-#warning finish
-    constexprAssert(false);
+    auto retval = std::make_shared<DimensionData>(dimension);
+    retval->moveThread = threading::Thread([retval, this]()
+                                           {
+                                               moveThreadFn(retval);
+                                           });
+    std::unique_lock<std::mutex> lockIt(retval->moveThreadLock);
+    while(!retval->moveThreadStarted)
+        retval->moveThreadCond.wait(lockIt);
+    return retval;
 }
 
 World::~World()
 {
-#warning finish
-    constexprAssert(false);
+    for(auto &dimensionEntry : dimensionDataMap)
+    {
+        auto &dimensionData = std::get<1>(dimensionEntry);
+        std::unique_lock<std::mutex> lockIt(dimensionData->moveThreadLock);
+        dimensionData->moveThreadDone = true;
+        dimensionData->moveThreadCond.notify_all();
+    }
+    for(auto &dimensionEntry : dimensionDataMap)
+    {
+        auto &dimensionData = std::get<1>(dimensionEntry);
+        dimensionData->moveThread.join();
+    }
 }
 }
 }
