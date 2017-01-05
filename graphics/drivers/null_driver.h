@@ -305,6 +305,10 @@ public:
     {
         return {256, 256};
     }
+    virtual float getOutputMMPerPixel() const noexcept override
+    {
+        return 0.254f;
+    }
     virtual void setRelativeMouseMode(bool enabled) override
     {
         constexprAssert(running);

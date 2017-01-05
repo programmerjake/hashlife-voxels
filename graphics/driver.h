@@ -79,6 +79,7 @@ public:
         util::FunctionReference<void(const ui::event::Event &event)> eventCallback) = 0;
     virtual std::shared_ptr<CommandBuffer> makeCommandBuffer() = 0;
     virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept = 0;
+    virtual float getOutputMMPerPixel() const noexcept = 0;
     virtual void setRelativeMouseMode(bool enabled) = 0;
 };
 }

@@ -577,9 +577,10 @@ int main()
                 }
                 if(auto mouseMove = dynamic_cast<const ui::event::MouseMove *>(&event))
                 {
-                    auto outputSize = graphics::Driver::get().getOutputSize();
-                    deltaViewTheta -= static_cast<float>(mouseMove->dx) / std::get<0>(outputSize);
-                    deltaViewPhi -= static_cast<float>(mouseMove->dy) / std::get<1>(outputSize);
+                    float outputMMPerPixel = graphics::Driver::get().getOutputMMPerPixel();
+                    float scale = outputMMPerPixel / 50.0f;
+                    deltaViewTheta -= static_cast<float>(mouseMove->dx) * scale;
+                    deltaViewPhi -= static_cast<float>(mouseMove->dy) * scale;
                 }
             });
     }

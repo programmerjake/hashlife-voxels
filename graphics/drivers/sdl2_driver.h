@@ -73,6 +73,7 @@ public:
     }
     static void initSDL() noexcept;
     virtual std::pair<std::size_t, std::size_t> getOutputSize() const noexcept override;
+    virtual float getOutputMMPerPixel() const noexcept override;
     virtual void setGraphicsContextRecreationNeeded() noexcept = 0;
     virtual void setRelativeMouseMode(bool enabled) override;
 };

@@ -59,6 +59,7 @@ struct SDL2Driver::RunningState final
     util::FunctionReference<void(const ui::event::Event &event)> eventCallback;
     std::atomic_int width{1};
     std::atomic_int height{1};
+    float dpi = 1.0f / 100;
     explicit RunningState(
         SDL2Driver &driver,
         util::FunctionReference<std::shared_ptr<CommandBuffer>()> renderCallback,
@@ -1449,6 +1450,13 @@ struct SDL2Driver::RunningState final
 #endif
             window = driver.createWindow(
                 SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1024, 768, flags);
+            int displayIndex = SDL_GetWindowDisplayIndex(window);
+            if(displayIndex < 0)
+                throw std::runtime_error(std::string("SDL_GetWindowDisplayIndex failed: ")
+                                         + SDL_GetError());
+            if(0 != SDL_GetDisplayDPI(displayIndex, &dpi, nullptr, nullptr))
+                throw std::runtime_error(std::string("SDL_GetDisplayDPI failed: ")
+                                         + SDL_GetError());
             driver.createGraphicsContext();
             createdGraphicsContext = true;
             cond.notify_all();
@@ -1593,6 +1601,13 @@ std::pair<std::size_t, std::size_t> SDL2Driver::getOutputSize() const noexcept
     int height = runningState->height.load(std::memory_order_acquire);
     int width = runningState->width.load(std::memory_order_relaxed);
     return {width, height};
+}
+
+float SDL2Driver::getOutputMMPerPixel() const noexcept
+{
+    float dpi = runningState ? runningState->dpi : 100.0f;
+    constexpr float mmPerInch = 25.4f; // 25.4 mm/in
+    return mmPerInch / dpi;
 }
 
 void SDL2Driver::setRelativeMouseMode(bool enabled)
