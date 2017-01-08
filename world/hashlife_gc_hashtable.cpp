@@ -35,9 +35,9 @@ void HashlifeGarbageCollectedHashtable::garbageCollect(
     for(std::size_t collectedCount = 1; collectedCount > 0;)
     {
         collectedCount = 0;
-        for(std::size_t bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++)
+        for(auto &bucket : buckets)
         {
-            for(auto **ppNode = &buckets[bucketIndex]; *ppNode != nullptr;
+            for(auto **ppNode = &bucket; *ppNode != nullptr;
                 ppNode = &(*ppNode)->hashNext)
             {
                 HashlifeNodeReference<const HashlifeNodeBase, false> node(*ppNode);

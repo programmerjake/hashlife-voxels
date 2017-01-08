@@ -45,13 +45,28 @@ class HashlifeGarbageCollectedHashtable final
         delete;
 
 private:
-    static constexpr std::size_t bucketCount = static_cast<std::size_t>(1) << 20;
-    const HashlifeNodeBase **buckets;
+    static constexpr std::size_t bucketCountPerLevel = static_cast<std::size_t>(1) << 10;
+    static constexpr std::size_t levelCount =
+        static_cast<std::size_t>(HashlifeNodeBase::maxLevel + 1);
+    std::vector<const HashlifeNodeBase *> buckets;
     std::size_t nodeCount;
     HashlifeNodeReference<const HashlifeNodeBase, false>
         canonicalEmptyNodes[HashlifeNodeBase::maxLevel + 1];
 
 private:
+    static constexpr std::size_t getBucketIndex(std::size_t hash, HashlifeNodeBase::LevelType level)
+    {
+        return hash % bucketCountPerLevel + level * bucketCountPerLevel;
+    }
+    const HashlifeNodeBase *&getBucket(std::size_t hash, HashlifeNodeBase::LevelType level)
+    {
+        return buckets[getBucketIndex(hash, level)];
+    }
+    const HashlifeNodeBase *const &getBucket(std::size_t hash,
+                                             HashlifeNodeBase::LevelType level) const
+    {
+        return buckets[getBucketIndex(hash, level)];
+    }
     static HashlifeNodeReference<const HashlifeLeafNode, false> makeNode(
         const HashlifeLeafNode::BlocksArray &blocks)
     {
@@ -71,6 +86,14 @@ private:
     {
         return HashlifeNonleafNode::hashNode(childNodes);
     }
+    static HashlifeNodeBase::LevelType getNodeLevel(const HashlifeLeafNode::BlocksArray &blocks)
+    {
+        return 0;
+    }
+    static HashlifeNodeBase::LevelType getNodeLevel(const HashlifeNonleafNode::ChildNodesArray &childNodes)
+    {
+        return 1 + childNodes[0][0][0]->level;
+    }
     static bool equalsNode(const HashlifeNodeBase *node,
                            const HashlifeNonleafNode::ChildNodesArray &childNodes)
     {
@@ -89,15 +112,17 @@ private:
     HashlifeNodeReference<const HashlifeNodeBase, false> findOrAddNodeImplementation(
         NodeType &&nodeIn)
     {
-        std::size_t index = hashNode(nodeIn) % bucketCount;
-        for(auto **ppNode = &buckets[index]; *ppNode != nullptr; ppNode = &(*ppNode)->hashNext)
+        std::size_t hash = hashNode(nodeIn);
+        HashlifeNodeBase::LevelType level = getNodeLevel(nodeIn);
+        for(auto **ppNode = &getBucket(hash, level); *ppNode != nullptr;
+            ppNode = &(*ppNode)->hashNext)
         {
             auto *pNode = *ppNode;
             if(equalsNode(pNode, nodeIn))
             {
                 *ppNode = pNode->hashNext; // move node to front of linked list
-                pNode->hashNext = buckets[index];
-                buckets[index] = pNode;
+                pNode->hashNext = getBucket(hash, level);
+                getBucket(hash, level) = pNode;
                 return pNode->referenceFromThis<false>();
             }
         }
@@ -105,21 +130,21 @@ private:
             makeNode(std::forward<NodeType>(nodeIn));
         nodeCount++;
         HashlifeNodeReference<const HashlifeNodeBase, false> retval = newNode;
-        newNode->hashNext = buckets[index];
-        buckets[index] = newNode.release();
+        newNode->hashNext = getBucket(hash, level);
+        getBucket(hash, level) = newNode.release();
         return retval;
     }
 
 public:
-    HashlifeGarbageCollectedHashtable()
-        : buckets(new const HashlifeNodeBase *[bucketCount]()), nodeCount(0), canonicalEmptyNodes{}
+    HashlifeGarbageCollectedHashtable() : buckets(), nodeCount(0), canonicalEmptyNodes{}
     {
+        buckets.resize(bucketCountPerLevel * levelCount, nullptr);
     }
     ~HashlifeGarbageCollectedHashtable()
     {
-        for(std::size_t i = 0; i < bucketCount; i++)
+        for(auto &bucket : buckets)
         {
-            HashlifeNodeReference<const HashlifeNodeBase, false> node(buckets[i]);
+            HashlifeNodeReference<const HashlifeNodeBase, false> node(bucket);
             while(node != nullptr)
             {
                 HashlifeNodeReference<const HashlifeNodeBase, false> nextNode(node->hashNext);
@@ -127,7 +152,6 @@ public:
                 node = nextNode;
             }
         }
-        delete []buckets;
     }
     HashlifeNodeReference<const HashlifeNodeBase, false> findOrAddNode(
         HashlifeNonleafNode::ChildNodesArray &&childNodes)
