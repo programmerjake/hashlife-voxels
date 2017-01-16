@@ -28,6 +28,7 @@
 #include "block/builtin/air.h"
 #include "graphics/drivers/null_driver.h"
 #include "graphics/drivers/opengl_1_driver.h"
+#include "graphics/drivers/vulkan_driver.h"
 #include "block/builtin/bedrock.h"
 #include "block/builtin/stone.h"
 #include "block/builtin/glowstone.h"
@@ -177,7 +178,11 @@ int main()
     {
     };
 #if 1
+#if 1
+    world::initAll(new graphics::drivers::VulkanDriver);
+#else
     world::initAll(new graphics::drivers::OpenGL1Driver);
+#endif
 #else
     world::initAll(new graphics::drivers::NullDriver(std::chrono::steady_clock::now()
                                                      + std::chrono::seconds(60)));
