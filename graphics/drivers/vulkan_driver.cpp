@@ -74,7 +74,7 @@ public:
     {
         std::shared_ptr<void> vulkanLoader;
         PFN_vkDestroyInstance vkDestroyInstance = nullptr;
-        VkInstance instance = nullptr;
+        VkInstance instance = VK_NULL_HANDLE;
         explicit InstanceHolder(std::shared_ptr<void> vulkanLoader)
             : vulkanLoader(std::move(vulkanLoader))
         {
@@ -97,7 +97,7 @@ public:
               instance(rt.instance)
         {
             rt.vkDestroyInstance = nullptr;
-            rt.instance = nullptr;
+            rt.instance = VK_NULL_HANDLE;
         }
         InstanceHolder &operator=(InstanceHolder rt)
         {
@@ -111,7 +111,7 @@ public:
     {
         std::shared_ptr<const VkInstance> instance;
         PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR = nullptr;
-        VkSurfaceKHR surface = nullptr;
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
         explicit SurfaceHolder(std::shared_ptr<const VkInstance> instance)
             : instance(std::move(instance))
         {
@@ -135,7 +135,7 @@ public:
               surface(rt.surface)
         {
             rt.vkDestroySurfaceKHR = nullptr;
-            rt.surface = nullptr;
+            rt.surface = VK_NULL_HANDLE;
         }
         SurfaceHolder &operator=(SurfaceHolder rt)
         {
@@ -149,7 +149,7 @@ public:
     {
         std::shared_ptr<const VkInstance> instance;
         PFN_vkDestroyDevice vkDestroyDevice = nullptr;
-        VkDevice device = nullptr;
+        VkDevice device = VK_NULL_HANDLE;
         explicit DeviceHolder(std::shared_ptr<const VkInstance> instance)
             : instance(std::move(instance))
         {
@@ -172,7 +172,7 @@ public:
               device(rt.device)
         {
             rt.vkDestroyDevice = nullptr;
-            rt.device = nullptr;
+            rt.device = VK_NULL_HANDLE;
         }
         DeviceHolder &operator=(DeviceHolder rt)
         {
@@ -220,7 +220,8 @@ public:
     std::shared_ptr<const VkQueue> presentQueue = nullptr;
     std::shared_ptr<const VkSemaphore> imageAvailableSemaphore = nullptr;
     std::shared_ptr<const VkSemaphore> renderingFinishedSemaphore = nullptr;
-    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    std::shared_ptr<const VkSwapchainKHR> swapchain = nullptr;
+    bool canRender = false;
 
 public:
 #define VULKAN_DRIVER_FUNCTIONS()                                              \
@@ -266,7 +267,7 @@ public:
     template <typename Fn>
     void loadGlobalFunction(Fn &fn, const char *name) const
     {
-        fn = reinterpret_cast<Fn>(vkGetInstanceProcAddr(nullptr, name));
+        fn = reinterpret_cast<Fn>(vkGetInstanceProcAddr(VK_NULL_HANDLE, name));
         if(!fn)
             throw std::runtime_error(std::string("can't load vulkan function: ") + name);
     }
@@ -516,6 +517,137 @@ public:
         holder->valid = true;
         return std::shared_ptr<const VkSemaphore>(holder, &holder->subobject);
     }
+    void createNewSwapchain() // destroys old swapchain
+    {
+        vkDeviceWaitIdle(*device); // ignore return value
+        canRender = false;
+        std::shared_ptr<const VkSwapchainKHR> oldSwapchain;
+        oldSwapchain.swap(swapchain);
+        VkSurfaceCapabilitiesKHR surfaceCapabilities;
+        handleVulkanResult(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+                               *physicalDevice, *surface, &surfaceCapabilities),
+                           "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+        std::uint32_t surfaceFormatsCount = 0;
+        handleVulkanResult(vkGetPhysicalDeviceSurfaceFormatsKHR(
+                               *physicalDevice, *surface, &surfaceFormatsCount, nullptr),
+                           "vkGetPhysicalDeviceSurfaceFormatsKHR");
+        if(surfaceFormatsCount == 0)
+            throw std::runtime_error("VulkanDriver: no supported surface formats");
+        std::vector<VkSurfaceFormatKHR> surfaceFormats;
+        surfaceFormats.resize(surfaceFormatsCount);
+        handleVulkanResult(
+            vkGetPhysicalDeviceSurfaceFormatsKHR(
+                *physicalDevice, *surface, &surfaceFormatsCount, surfaceFormats.data()),
+            "vkGetPhysicalDeviceSurfaceFormatsKHR");
+        std::uint32_t presentModesCount = 0;
+        handleVulkanResult(vkGetPhysicalDeviceSurfacePresentModesKHR(
+                               *physicalDevice, *surface, &presentModesCount, nullptr),
+                           "vkGetPhysicalDeviceSurfacePresentModesKHR");
+        std::vector<VkPresentModeKHR> presentModes;
+        presentModes.resize(presentModesCount);
+        handleVulkanResult(vkGetPhysicalDeviceSurfacePresentModesKHR(
+                               *physicalDevice, *surface, &presentModesCount, presentModes.data()),
+                           "vkGetPhysicalDeviceSurfacePresentModesKHR");
+        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        for(auto presentMode : presentModes)
+        {
+            std::string presentModeStr = "unknown";
+            switch(presentMode)
+            {
+            case VK_PRESENT_MODE_IMMEDIATE_KHR:
+                presentModeStr = "immediate";
+                if(presentMode != VK_PRESENT_MODE_MAILBOX_KHR)
+                    presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+                break;
+            case VK_PRESENT_MODE_MAILBOX_KHR:
+                presentModeStr = "mailbox";
+                presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+                break;
+            case VK_PRESENT_MODE_FIFO_KHR:
+                presentModeStr = "fifo";
+                break;
+            case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+                presentModeStr = "fifo relaxed";
+                break;
+
+            // so the compiler doesn't complain about missing enum values
+            case VK_PRESENT_MODE_RANGE_SIZE_KHR:
+            case VK_PRESENT_MODE_MAX_ENUM_KHR:
+                break;
+            }
+            logging::log(logging::Level::Info, "VulkanDriver", "Present Mode: " + presentModeStr);
+        }
+        std::uint32_t swapchainImageCount = surfaceCapabilities.minImageCount + 1;
+        if(surfaceCapabilities.maxImageCount
+           && surfaceCapabilities.maxImageCount < swapchainImageCount)
+            swapchainImageCount = surfaceCapabilities.maxImageCount;
+        VkSurfaceFormatKHR surfaceFormat{};
+        if(surfaceFormats.size() == 1 && surfaceFormats[0].format == VK_FORMAT_UNDEFINED)
+        {
+            surfaceFormat.format = VK_FORMAT_R8G8B8A8_UNORM;
+            surfaceFormat.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+        }
+        else
+        {
+            surfaceFormat.format = VK_FORMAT_UNDEFINED;
+            for(auto &format : surfaceFormats)
+            {
+                if(format.format == VK_FORMAT_R8G8B8A8_UNORM)
+                {
+                    surfaceFormat = format;
+                    break;
+                }
+            }
+            if(surfaceFormat.format == VK_FORMAT_UNDEFINED)
+                surfaceFormat = surfaceFormats[0];
+        }
+        VkExtent2D swapchainExtent = surfaceCapabilities.currentExtent;
+        if(swapchainExtent.width == static_cast<std::uint32_t>(-1)) // special extent
+        {
+            int w, h;
+            SDL_GL_GetDrawableSize(vulkanDriver->getWindow(), &w, &h);
+            swapchainExtent.width = w;
+            swapchainExtent.height = h;
+        }
+        if(swapchainExtent.width == 0 || swapchainExtent.height == 0)
+            return;
+        VkImageUsageFlags imageUsageFlags =
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        if((surfaceCapabilities.supportedUsageFlags & imageUsageFlags) != imageUsageFlags)
+            throw std::runtime_error("VulkanDriver: surface doesn't support needed usage flags");
+        VkSurfaceTransformFlagBitsKHR surfaceTransform = surfaceCapabilities.currentTransform;
+        VkSwapchainCreateInfoKHR swapchainCreateInfo{};
+        swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        swapchainCreateInfo.surface = *surface;
+        swapchainCreateInfo.minImageCount = swapchainImageCount;
+        swapchainCreateInfo.imageFormat = surfaceFormat.format;
+        swapchainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
+        swapchainCreateInfo.imageExtent = swapchainExtent;
+        swapchainCreateInfo.imageArrayLayers = 1;
+        swapchainCreateInfo.imageUsage = imageUsageFlags;
+        swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        swapchainCreateInfo.preTransform = surfaceTransform;
+        swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        swapchainCreateInfo.presentMode = presentMode;
+        swapchainCreateInfo.clipped = VK_TRUE;
+        swapchainCreateInfo.oldSwapchain = oldSwapchain ? *oldSwapchain : static_cast<VkSwapchainKHR>(VK_NULL_HANDLE);
+        const auto vkDestroySwapchainKHR = this->vkDestroySwapchainKHR;
+        auto swapchainDeleter = [vkDestroySwapchainKHR](
+            const std::shared_ptr<const VkDevice> &device, VkSwapchainKHR swapchain)
+        {
+            vkDestroySwapchainKHR(*device, swapchain, nullptr);
+        };
+        auto holder =
+            std::make_shared<DeviceSubobjectHolder<VkSwapchainKHR, decltype(swapchainDeleter)>>(
+                device, std::move(swapchainDeleter));
+        handleVulkanResult(
+            vkCreateSwapchainKHR(*device, &swapchainCreateInfo, nullptr, &holder->subobject),
+            "vkCreateSwapchainKHR");
+        holder->valid = true;
+        swapchain = std::shared_ptr<const VkSwapchainKHR>(holder, &holder->subobject);
+        oldSwapchain = nullptr;
+        canRender = true;
+    }
     void createGraphicsContext()
     {
         assert(!wmHelper);
@@ -706,71 +838,16 @@ public:
             presentQueue = getQueue(device, presentQueueFamilyIndex, 0);
         imageAvailableSemaphore = createSemaphore();
         renderingFinishedSemaphore = createSemaphore();
-        VkSurfaceCapabilitiesKHR surfaceCapabilities;
-        handleVulkanResult(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-                               *physicalDevice, *surface, &surfaceCapabilities),
-                           "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-        std::uint32_t surfaceFormatsCount = 0;
-        handleVulkanResult(vkGetPhysicalDeviceSurfaceFormatsKHR(
-                               *physicalDevice, *surface, &surfaceFormatsCount, nullptr),
-                           "vkGetPhysicalDeviceSurfaceFormatsKHR");
-        std::vector<VkSurfaceFormatKHR> surfaceFormats;
-        surfaceFormats.resize(surfaceFormatsCount);
-        handleVulkanResult(
-            vkGetPhysicalDeviceSurfaceFormatsKHR(
-                *physicalDevice, *surface, &surfaceFormatsCount, surfaceFormats.data()),
-            "vkGetPhysicalDeviceSurfaceFormatsKHR");
-        std::uint32_t presentModesCount = 0;
-        handleVulkanResult(vkGetPhysicalDeviceSurfacePresentModesKHR(
-                               *physicalDevice, *surface, &presentModesCount, nullptr),
-                           "vkGetPhysicalDeviceSurfacePresentModesKHR");
-        std::vector<VkPresentModeKHR> presentModes;
-        presentModes.resize(presentModesCount);
-        handleVulkanResult(vkGetPhysicalDeviceSurfacePresentModesKHR(
-                               *physicalDevice, *surface, &presentModesCount, presentModes.data()),
-                           "vkGetPhysicalDeviceSurfacePresentModesKHR");
-        presentMode = VK_PRESENT_MODE_FIFO_KHR;
-        for(auto presentMode : presentModes)
-        {
-            std::string presentModeStr = "unknown";
-            switch(presentMode)
-            {
-            case VK_PRESENT_MODE_IMMEDIATE_KHR:
-                presentModeStr = "immediate";
-                if(presentMode != VK_PRESENT_MODE_MAILBOX_KHR)
-                    presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
-                break;
-            case VK_PRESENT_MODE_MAILBOX_KHR:
-                presentModeStr = "mailbox";
-                presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
-                break;
-            case VK_PRESENT_MODE_FIFO_KHR:
-                presentModeStr = "fifo";
-                break;
-            case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
-                presentModeStr = "fifo relaxed";
-                break;
-
-            // so the compiler doesn't complain about missing enum values
-            case VK_PRESENT_MODE_RANGE_SIZE_KHR:
-            case VK_PRESENT_MODE_MAX_ENUM_KHR:
-                break;
-            }
-            logging::log(logging::Level::Info, "VulkanDriver", "Present Mode: " + presentModeStr);
-        }
+        createNewSwapchain();
         throw std::runtime_error("VulkanDriver not finished");
-#if 0
-        VkSwapchainCreateInfoKHR swapchainCreateInfo{};
-        swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-        swapchainCreateInfo.surface = *surface;
-        swapchainCreateInfo.
-#endif
 #warning finish
     }
     void destroyGraphicsContext() noexcept
     {
 #warning finish
         vkDeviceWaitIdle(*device); // ignore return value
+        canRender = false;
+        swapchain = nullptr;
         imageAvailableSemaphore = nullptr;
         renderingFinishedSemaphore = nullptr;
         graphicsQueue = nullptr;
