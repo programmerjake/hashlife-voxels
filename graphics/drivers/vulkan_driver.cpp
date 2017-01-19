@@ -24,12 +24,14 @@
 #else
 #include "../../logging/logging.h"
 #include <cassert>
+#include <cstdlib>
 #include <memory>
 #include <stdexcept>
 #include <vector>
 #include <sstream>
 #include <cstdint>
 #include <utility>
+#include <mutex>
 #include <type_traits>
 #include "SDL_syswm.h"
 #if defined(__ANDROID__)
@@ -201,6 +203,202 @@ public:
         }
         DeviceSubobjectHolder(const DeviceSubobjectHolder &rt) = delete;
         DeviceSubobjectHolder &operator=(DeviceSubobjectHolder rt) = delete;
+    };
+    struct VulkanTextureImplementation final : public TextureImplementation
+    {
+#warning finish
+        const std::size_t width;
+        const std::size_t height;
+        VulkanTextureImplementation(std::size_t width, std::size_t height)
+            : width(width), height(height)
+        {
+        }
+    };
+    struct VulkanRenderBuffer final : public RenderBuffer
+    {
+#warning finish
+    private:
+        struct TriangleBuffer final
+        {
+            std::unique_ptr<Triangle[]> buffer;
+            std::size_t bufferSize;
+            std::size_t bufferUsed;
+            TriangleBuffer(std::size_t size = 0)
+                : buffer(size > 0 ? new Triangle[size] : nullptr), bufferSize(size), bufferUsed(0)
+            {
+            }
+            std::size_t allocateSpace(std::size_t triangleCount) noexcept
+            {
+                constexprAssert(triangleCount <= bufferSize
+                                && triangleCount + bufferUsed <= bufferSize);
+                auto retval = bufferUsed;
+                bufferUsed += triangleCount;
+                return retval;
+            }
+            void append(const Triangle *triangles, std::size_t triangleCount) noexcept
+            {
+                std::size_t location = allocateSpace(triangleCount);
+                for(std::size_t i = 0; i < triangleCount; i++)
+                {
+                    constexprAssert(triangles[i].texture.value == nullptr
+                                    || dynamic_cast<const VulkanTextureImplementation *>(
+                                           triangles[i].texture.value));
+                    buffer[location + i] = triangles[i];
+                }
+            }
+            void append(const Triangle &triangle) noexcept
+            {
+                append(&triangle, 1);
+            }
+            std::size_t sizeLeft() const noexcept
+            {
+                return bufferSize - bufferUsed;
+            }
+        };
+        util::EnumArray<TriangleBuffer, RenderLayer> triangleBuffers;
+        bool finished;
+
+    public:
+        VulkanRenderBuffer(const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
+            : triangleBuffers(), finished(false)
+        {
+            for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                triangleBuffers[renderLayer] = TriangleBuffer(maximumSizes[renderLayer]);
+            }
+        }
+        bool isFinished() const noexcept
+        {
+            return finished;
+        }
+        virtual std::size_t getMaximumAdditionalSize(RenderLayer renderLayer) const
+            noexcept override
+        {
+            return triangleBuffers[renderLayer].sizeLeft();
+        }
+        virtual void reserveAdditional(RenderLayer renderLayer,
+                                       std::size_t howManyTriangles) override
+        {
+            constexprAssert(!finished);
+        }
+        virtual void appendTriangles(RenderLayer renderLayer,
+                                     const Triangle *triangles,
+                                     std::size_t triangleCount) override
+        {
+            constexprAssert(!finished);
+            triangleBuffers[renderLayer].append(triangles, triangleCount);
+        }
+        virtual void appendTriangles(RenderLayer renderLayer,
+                                     const Triangle *triangles,
+                                     std::size_t triangleCount,
+                                     const Transform &tform) override
+        {
+            constexprAssert(!finished);
+            for(std::size_t i = 0; i < triangleCount; i++)
+                triangleBuffers[renderLayer].append(transform(tform, triangles[i]));
+        }
+        virtual void appendBuffer(const ReadableRenderBuffer &buffer) override
+        {
+            constexprAssert(!finished);
+            for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                auto &triangleBuffer = triangleBuffers[renderLayer];
+                std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+                if(!triangleCount)
+                    continue;
+                std::size_t location = triangleBuffer.allocateSpace(triangleCount);
+                buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+                for(std::size_t i = 0; i < triangleCount; i++)
+                {
+                    constexprAssert(triangleBuffer.buffer[location + i].texture.value == nullptr
+                                    || dynamic_cast<const VulkanTextureImplementation *>(
+                                           triangleBuffer.buffer[location + i].texture.value));
+                }
+            }
+        }
+        virtual void appendBuffer(const ReadableRenderBuffer &buffer,
+                                  const Transform &tform) override
+        {
+            constexprAssert(!finished);
+            for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                auto &triangleBuffer = triangleBuffers[renderLayer];
+                std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
+                if(!triangleCount)
+                    continue;
+                std::size_t location = triangleBuffer.allocateSpace(triangleCount);
+                buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+                for(std::size_t i = 0; i < triangleCount; i++)
+                {
+                    constexprAssert(triangleBuffer.buffer[location + i].texture.value == nullptr
+                                    || dynamic_cast<const VulkanTextureImplementation *>(
+                                           triangleBuffer.buffer[location + i].texture.value));
+                    triangleBuffer.buffer[location + i] =
+                        transform(tform, triangleBuffer.buffer[location + i]);
+                }
+            }
+        }
+        virtual void finish() noexcept override
+        {
+            finished = true;
+        }
+    };
+#endif
+    struct VulkanCommandBuffer final : public CommandBuffer
+    {
+        std::shared_ptr<const VkDevice> device;
+        std::shared_ptr<const VkCommandPool> commandPool;
+        std::shared_ptr<const VkCommandBuffer> commandBuffer;
+        std::vector<std::shared_ptr<RenderBuffer>> renderBuffers;
+        bool finished = false;
+        bool hasInitialClearColor = false;
+        bool hasInitialClearDepth = false;
+        bool hasAnyRenderCommands = false;
+        ColorF clearColor{};
+        virtual void appendClearCommand(bool colorFlag,
+                                        bool depthFlag,
+                                        const ColorF &backgroundColor) override
+        {
+            constexprAssert(!finished);
+            if(!colorFlag && !depthFlag)
+                return;
+            if(!hasAnyRenderCommands)
+            {
+                if(colorFlag)
+                {
+                    hasInitialClearColor = true;
+                    clearColor = backgroundColor;
+                }
+                if(depthFlag)
+                {
+                    hasInitialClearDepth = true;
+                }
+                return;
+            }
+#warning finish
+            constexprAssert("not implemented");
+            std::abort();
+        }
+        virtual void appendRenderCommand(const std::shared_ptr<RenderBuffer> &renderBuffer,
+                                         const Transform &modelTransform,
+                                         const Transform &viewTransform,
+                                         const Transform &projectionTransform) override
+        {
+            constexprAssert(!finished);
+            if(dynamic_cast<const EmptyRenderBuffer *>(renderBuffer.get()))
+                return;
+#warning finish
+            constexprAssert(dynamic_cast<const VulkanRenderBuffer *>(renderBuffer.get()));
+            constexprAssert(
+                static_cast<const VulkanRenderBuffer *>(renderBuffer.get())->isFinished());
+            renderBuffers.push_back(renderBuffer);
+        }
+        virtual void appendPresentCommandAndFinish() override
+        {
+            constexprAssert(!finished);
+            finished = true;
+#warning finish
+        }
     };
 
 public:
@@ -630,7 +828,8 @@ public:
         swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         swapchainCreateInfo.presentMode = presentMode;
         swapchainCreateInfo.clipped = VK_TRUE;
-        swapchainCreateInfo.oldSwapchain = oldSwapchain ? *oldSwapchain : static_cast<VkSwapchainKHR>(VK_NULL_HANDLE);
+        swapchainCreateInfo.oldSwapchain =
+            oldSwapchain ? *oldSwapchain : static_cast<VkSwapchainKHR>(VK_NULL_HANDLE);
         const auto vkDestroySwapchainKHR = this->vkDestroySwapchainKHR;
         auto swapchainDeleter = [vkDestroySwapchainKHR](
             const std::shared_ptr<const VkDevice> &device, VkSwapchainKHR swapchain)
@@ -944,7 +1143,7 @@ void VulkanDriver::destroyGraphicsContext() noexcept
 TextureId VulkanDriver::makeTexture(const std::shared_ptr<const Image> &image)
 {
 #warning finish
-    return TextureId();
+    return TextureId(new Implementation::VulkanTextureImplementation(image->width, image->height));
 }
 
 void VulkanDriver::setNewImageData(TextureId texture, const std::shared_ptr<const Image> &image)
@@ -956,13 +1155,13 @@ std::shared_ptr<RenderBuffer> VulkanDriver::makeBuffer(
     const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
 {
 #warning finish
-    return nullptr;
+    return std::make_shared<Implementation::VulkanRenderBuffer>(maximumSizes);
 }
 
 std::shared_ptr<CommandBuffer> VulkanDriver::makeCommandBuffer()
 {
 #warning finish
-    return nullptr;
+    return std::make_shared<Implementation::VulkanCommandBuffer>();
 }
 
 void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
@@ -973,4 +1172,3 @@ void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
 }
 }
 }
-#endif
