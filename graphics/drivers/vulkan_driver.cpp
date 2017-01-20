@@ -19,9 +19,6 @@
  *
  */
 #include "vulkan_driver.h"
-#if 0
-#warning finish writing VulkanDriver
-#else
 #include "../../logging/logging.h"
 #include <cassert>
 #include <cstdlib>
@@ -343,7 +340,6 @@ public:
             finished = true;
         }
     };
-#endif
     struct VulkanCommandBuffer final : public CommandBuffer
     {
         std::shared_ptr<const VkDevice> device;
@@ -419,7 +415,8 @@ public:
     std::shared_ptr<const VkSemaphore> imageAvailableSemaphore = nullptr;
     std::shared_ptr<const VkSemaphore> renderingFinishedSemaphore = nullptr;
     std::shared_ptr<const VkSwapchainKHR> swapchain = nullptr;
-    bool canRender = false;
+    std::vector<std::shared_ptr<const VkImage>> swapchainImages{};
+    std::vector<std::shared_ptr<const VkImageView>> swapchainImageViews{};
 
 public:
 #define VULKAN_DRIVER_FUNCTIONS()                                              \
@@ -442,6 +439,10 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySemaphore)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSwapchainKHR)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySwapchainKHR)                       \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkAcquireNextImageKHR)                       \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)                     \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDeviceWaitIdle)
 
 #define VULKAN_DRIVER_GLOBAL_FUNCTION(name) PFN_##name name = nullptr;
@@ -715,12 +716,92 @@ public:
         holder->valid = true;
         return std::shared_ptr<const VkSemaphore>(holder, &holder->subobject);
     }
+    std::shared_ptr<const VkImageView> createImageView(std::shared_ptr<const VkImage> image,
+                                                       VkImageViewType viewType,
+                                                       VkFormat format,
+                                                       VkImageAspectFlags aspectMask,
+                                                       std::uint32_t baseMipLevel,
+                                                       std::uint32_t levelCount,
+                                                       std::uint32_t baseArrayLayer,
+                                                       std::uint32_t layerCount)
+    {
+        auto vkDestroyImageView = this->vkDestroyImageView;
+        auto destroyFn = [vkDestroyImageView](const std::shared_ptr<const VkDevice> &device,
+                                              VkImageView imageView)
+        {
+            vkDestroyImageView(*device, imageView, nullptr);
+        };
+        typedef decltype(destroyFn) destroyFnType;
+        struct Holder final
+        {
+            std::shared_ptr<const VkImage> image;
+            DeviceSubobjectHolder<VkImageView, destroyFnType> subobject;
+            Holder(std::shared_ptr<const VkImage> image,
+                   std::shared_ptr<const VkDevice> device,
+                   destroyFnType &&destroyFn)
+                : image(std::move(image)), subobject(std::move(device), std::move(destroyFn))
+            {
+            }
+        };
+        VkImageViewCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        createInfo.image = *image;
+        createInfo.viewType = viewType;
+        createInfo.format = format;
+        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.subresourceRange.aspectMask = aspectMask;
+        createInfo.subresourceRange.baseMipLevel = baseMipLevel;
+        createInfo.subresourceRange.levelCount = levelCount;
+        createInfo.subresourceRange.baseArrayLayer = baseArrayLayer;
+        createInfo.subresourceRange.layerCount = layerCount;
+        auto holder = std::make_shared<Holder>(std::move(image), device, std::move(destroyFn));
+        handleVulkanResult(
+            vkCreateImageView(*device, &createInfo, nullptr, &holder->subobject.subobject),
+            "vkCreateImageView");
+        holder->subobject.valid = true;
+        return std::shared_ptr<const VkImageView>(holder, &holder->subobject.subobject);
+    }
+    void getSwapchainImages(VkFormat swapchainFormat)
+    {
+        struct SwapchainImagesHolder final
+        {
+            std::shared_ptr<const VkSwapchainKHR> swapchain;
+            std::vector<VkImage> images;
+        };
+        auto holder = std::make_shared<SwapchainImagesHolder>();
+        holder->swapchain = swapchain;
+        std::uint32_t swapchainImageCount = 0;
+        handleVulkanResult(
+            vkGetSwapchainImagesKHR(*device, *swapchain, &swapchainImageCount, nullptr),
+            "vkGetSwapchainImagesKHR");
+        holder->images.resize(swapchainImageCount);
+        swapchainImages.clear();
+        swapchainImageViews.clear();
+        handleVulkanResult(vkGetSwapchainImagesKHR(
+                               *device, *swapchain, &swapchainImageCount, holder->images.data()),
+                           "vkGetSwapchainImagesKHR");
+        for(auto &image : holder->images)
+            swapchainImages.push_back(std::shared_ptr<const VkImage>(holder, &image));
+        for(auto &image : swapchainImages)
+            swapchainImageViews.push_back(createImageView(image,
+                                                          VK_IMAGE_VIEW_TYPE_2D,
+                                                          swapchainFormat,
+                                                          VK_IMAGE_ASPECT_COLOR_BIT,
+                                                          0,
+                                                          1,
+                                                          0,
+                                                          1));
+    }
     void createNewSwapchain() // destroys old swapchain
     {
-        vkDeviceWaitIdle(*device); // ignore return value
-        canRender = false;
-        std::shared_ptr<const VkSwapchainKHR> oldSwapchain;
-        oldSwapchain.swap(swapchain);
+        handleVulkanResult(vkDeviceWaitIdle(*device), "vkDeviceWaitIdle");
+        std::shared_ptr<const VkSwapchainKHR> oldSwapchain = std::move(swapchain);
+        swapchain = nullptr;
+        swapchainImages.clear();
+        swapchainImageViews.clear();
         VkSurfaceCapabilitiesKHR surfaceCapabilities;
         handleVulkanResult(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
                                *physicalDevice, *surface, &surfaceCapabilities),
@@ -844,8 +925,16 @@ public:
             "vkCreateSwapchainKHR");
         holder->valid = true;
         swapchain = std::shared_ptr<const VkSwapchainKHR>(holder, &holder->subobject);
+        try
+        {
+            getSwapchainImages(surfaceFormat.format);
+        }
+        catch(...)
+        {
+            swapchain = nullptr;
+            throw;
+        }
         oldSwapchain = nullptr;
-        canRender = true;
     }
     void createGraphicsContext()
     {
@@ -898,6 +987,9 @@ public:
         instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         instanceCreateInfo.pApplicationInfo = &appInfo;
         std::vector<const char *> enabledInstanceLayers;
+#if 1
+#warning add code to check for layers
+#endif
         instanceCreateInfo.enabledLayerCount = enabledInstanceLayers.size();
         instanceCreateInfo.ppEnabledLayerNames = enabledInstanceLayers.data();
         std::vector<const char *> enabledInstanceExtensions;
@@ -1038,14 +1130,13 @@ public:
         imageAvailableSemaphore = createSemaphore();
         renderingFinishedSemaphore = createSemaphore();
         createNewSwapchain();
-        throw std::runtime_error("VulkanDriver not finished");
-#warning finish
     }
     void destroyGraphicsContext() noexcept
     {
 #warning finish
         vkDeviceWaitIdle(*device); // ignore return value
-        canRender = false;
+        swapchainImages.clear();
+        swapchainImageViews.clear();
         swapchain = nullptr;
         imageAvailableSemaphore = nullptr;
         renderingFinishedSemaphore = nullptr;
@@ -1061,8 +1152,14 @@ public:
     {
         if(result >= 0)
             return result;
-        constexpr int VK_ERROR_FRAGMENTED_POOL = -12; // not all vulkan.h files have this
-        switch(static_cast<int>(result))
+        constexpr long VK_ERROR_FRAGMENTED_POOL = -12; // not all vulkan.h files have this
+        constexpr long VK_ERROR_SURFACE_LOST_KHR = -1000000000;
+        constexpr long VK_ERROR_NATIVE_WINDOW_IN_USE_KHR = -1000000001;
+        constexpr long VK_ERROR_OUT_OF_DATE_KHR = -1000001004;
+        constexpr long VK_ERROR_INCOMPATIBLE_DISPLAY_KHR = -1000003001;
+        constexpr long VK_ERROR_VALIDATION_FAILED_EXT = -1000011001;
+        constexpr long VK_ERROR_INVALID_SHADER_NV = -1000012000;
+        switch(static_cast<long>(result))
         {
         case VK_ERROR_OUT_OF_HOST_MEMORY:
             throw std::runtime_error(std::string("vulkan error: ") + functionName
@@ -1100,6 +1197,24 @@ public:
         case VK_ERROR_FRAGMENTED_POOL:
             throw std::runtime_error(std::string("vulkan error: ") + functionName
                                      + " returned VK_ERROR_FRAGMENTED_POOL");
+        case VK_ERROR_SURFACE_LOST_KHR:
+            throw std::runtime_error(std::string("vulkan error: ") + functionName
+                                     + " returned VK_ERROR_SURFACE_LOST_KHR");
+        case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR:
+            throw std::runtime_error(std::string("vulkan error: ") + functionName
+                                     + " returned VK_ERROR_NATIVE_WINDOW_IN_USE_KHR");
+        case VK_ERROR_OUT_OF_DATE_KHR:
+            throw std::runtime_error(std::string("vulkan error: ") + functionName
+                                     + " returned VK_ERROR_OUT_OF_DATE_KHR");
+        case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR:
+            throw std::runtime_error(std::string("vulkan error: ") + functionName
+                                     + " returned VK_ERROR_INCOMPATIBLE_DISPLAY_KHR");
+        case VK_ERROR_VALIDATION_FAILED_EXT:
+            throw std::runtime_error(std::string("vulkan error: ") + functionName
+                                     + " returned VK_ERROR_VALIDATION_FAILED_EXT");
+        case VK_ERROR_INVALID_SHADER_NV:
+            throw std::runtime_error(std::string("vulkan error: ") + functionName
+                                     + " returned VK_ERROR_INVALID_SHADER_NV");
         default:
         {
             std::ostringstream ss;
@@ -1107,6 +1222,23 @@ public:
             throw std::runtime_error(ss.str());
         }
         }
+    }
+    void renderFrame(VulkanCommandBuffer &commandBuffer)
+    {
+        constexprAssert(commandBuffer.finished);
+        if(!swapchain)
+            return;
+        std::uint32_t imageIndex = 0;
+        VkResult acquireNextImageResult = vkAcquireNextImageKHR(
+            *device, *swapchain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+        if(acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            createNewSwapchain();
+            return;
+        }
+        handleVulkanResult(acquireNextImageResult, "vkAcquireNextImageKHR");
+        throw std::runtime_error("VulkanDriver not finished");
+#warning finish
     }
 };
 
@@ -1117,7 +1249,8 @@ std::shared_ptr<VulkanDriver::Implementation> VulkanDriver::createImplementation
 
 void VulkanDriver::renderFrame(std::shared_ptr<CommandBuffer> commandBuffer)
 {
-#warning finish
+    constexprAssert(dynamic_cast<Implementation::VulkanCommandBuffer *>(commandBuffer.get()));
+    implementation->renderFrame(static_cast<Implementation::VulkanCommandBuffer &>(*commandBuffer));
 }
 
 SDL_Window *VulkanDriver::createWindow(int x, int y, int w, int h, std::uint32_t flags)

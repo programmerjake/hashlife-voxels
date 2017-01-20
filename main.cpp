@@ -178,7 +178,7 @@ int main()
     {
     };
 #if 1
-#if 1
+#if 0
     world::initAll(new graphics::drivers::VulkanDriver);
 #else
     world::initAll(new graphics::drivers::OpenGL1Driver);
@@ -189,7 +189,7 @@ int main()
 #endif
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 50;
+    constexpr std::int32_t ballSize = 150;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {
@@ -315,7 +315,7 @@ int main()
     bool generateRenderBuffersDone = false;
     std::list<threading::Thread> generateRenderBuffersThreads;
     const float nearPlane = 0.01f;
-    const float farPlane = 100;
+    const float farPlane = 200;
     world::HashlifeWorld::GPURenderBufferCache gpuRenderBufferCache;
     util::Vector3F playerPosition(0.5f);
     float viewPhi = 0;
