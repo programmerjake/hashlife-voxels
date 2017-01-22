@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <utility>
 #include <mutex>
+#include <deque>
 #include <type_traits>
 #include "SDL_syswm.h"
 #if defined(__ANDROID__)
@@ -200,6 +201,27 @@ public:
         }
         DeviceSubobjectHolder(const DeviceSubobjectHolder &rt) = delete;
         DeviceSubobjectHolder &operator=(DeviceSubobjectHolder rt) = delete;
+    };
+    struct CommandBufferHolder final
+    {
+        std::shared_ptr<const VkDevice> device;
+        std::shared_ptr<const VkCommandPool> commandPool;
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        PFN_vkFreeCommandBuffers vkFreeCommandBuffers = nullptr;
+        CommandBufferHolder(std::shared_ptr<const VkDevice> device,
+                            std::shared_ptr<const VkCommandPool> commandPool)
+            : device(std::move(device)), commandPool(std::move(commandPool))
+        {
+        }
+        ~CommandBufferHolder()
+        {
+            if(!vkFreeCommandBuffers) // commandBuffer could have been set to garbage by a failing
+                // vkAllocateCommandBuffers; check vkFreeCommandBuffers instead
+                return;
+            vkFreeCommandBuffers(*device, *commandPool, 1, &commandBuffer);
+        }
+        CommandBufferHolder(const CommandBufferHolder &rt) = delete;
+        CommandBufferHolder &operator=(CommandBufferHolder rt) = delete;
     };
     struct VulkanTextureImplementation final : public TextureImplementation
     {
@@ -396,6 +418,15 @@ public:
 #warning finish
         }
     };
+    struct FrameObjects final
+    {
+        const std::shared_ptr<const VkFence> fence;
+        std::vector<std::shared_ptr<const void>> objects;
+        explicit FrameObjects(std::shared_ptr<const VkFence> fence)
+            : fence(std::move(fence)), objects()
+        {
+        }
+    };
 
 public:
     VulkanDriver *const vulkanDriver;
@@ -417,37 +448,51 @@ public:
     std::shared_ptr<const VkSwapchainKHR> swapchain = nullptr;
     std::vector<std::shared_ptr<const VkImage>> swapchainImages{};
     std::vector<std::shared_ptr<const VkImageView>> swapchainImageViews{};
+    std::vector<FrameObjects> frames;
 
 public:
+#define VULKAN_DRIVER_END()
 #define VULKAN_DRIVER_FUNCTIONS()                                              \
-    VULKAN_DRIVER_GLOBAL_FUNCTION(vkEnumerateInstanceLayerProperties)          \
-    VULKAN_DRIVER_GLOBAL_FUNCTION(vkEnumerateInstanceExtensionProperties)      \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkAcquireNextImageKHR)                       \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkAllocateCommandBuffers)                    \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkBeginCommandBuffer)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdClearColorImage)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdPipelineBarrier)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateCommandPool)                         \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFence)                               \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSemaphore)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSwapchainKHR)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyCommandPool)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFence)                              \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySemaphore)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySwapchainKHR)                       \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDeviceWaitIdle)                            \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkEndCommandBuffer)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkFreeCommandBuffers)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetDeviceQueue)                            \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetFenceStatus)                            \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)                     \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkQueuePresentKHR)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkQueueSubmit)                               \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkResetFences)                               \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkWaitForFences)                             \
     VULKAN_DRIVER_GLOBAL_FUNCTION(vkCreateInstance)                            \
-    VULKAN_DRIVER_INSTANCE_FUNCTION(vkEnumeratePhysicalDevices)                \
-    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetDeviceProcAddr)                       \
-    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceProperties)             \
-    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceFeatures)               \
-    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties)  \
+    VULKAN_DRIVER_GLOBAL_FUNCTION(vkEnumerateInstanceExtensionProperties)      \
+    VULKAN_DRIVER_GLOBAL_FUNCTION(vkEnumerateInstanceLayerProperties)          \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkCreateDevice)                            \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkEnumerateDeviceExtensionProperties)      \
-    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceSurfaceSupportKHR)      \
+    VULKAN_DRIVER_INSTANCE_FUNCTION(vkEnumeratePhysicalDevices)                \
+    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetDeviceProcAddr)                       \
+    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceFeatures)               \
+    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceProperties)             \
+    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties)  \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceSurfaceFormatsKHR)      \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceSurfacePresentModesKHR) \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetDeviceQueue)                            \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSemaphore)                           \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySemaphore)                          \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSwapchainKHR)                        \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySwapchainKHR)                       \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkAcquireNextImageKHR)                       \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)                     \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFence)                               \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFence)                              \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateCommandPool)                         \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyCommandPool)                        \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkDeviceWaitIdle)
+    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceSurfaceSupportKHR)      \
+    VULKAN_DRIVER_END()
 
 #define VULKAN_DRIVER_GLOBAL_FUNCTION(name) PFN_##name name = nullptr;
 #define VULKAN_DRIVER_INSTANCE_FUNCTION(name) PFN_##name name = nullptr;
@@ -532,6 +577,7 @@ public:
 #undef VULKAN_DRIVER_DEVICE_FUNCTION
     }
 #undef VULKAN_DRIVER_FUNCTIONS
+#undef VULKAN_DRIVER_END
 
 public:
     void loadLoader()
@@ -716,7 +762,7 @@ public:
         VkSemaphoreCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         handleVulkanResult(vkCreateSemaphore(*device, &createInfo, nullptr, &holder->subobject),
-                           "");
+                           "vkCreateSemaphore");
         holder->valid = true;
         return std::shared_ptr<const VkSemaphore>(holder, &holder->subobject);
     }
@@ -734,7 +780,8 @@ public:
         createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         if(signaled)
             createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        handleVulkanResult(vkCreateFence(*device, &createInfo, nullptr, &holder->subobject), "");
+        handleVulkanResult(vkCreateFence(*device, &createInfo, nullptr, &holder->subobject),
+                           "vkCreateFence");
         holder->valid = true;
         return std::shared_ptr<const VkFence>(holder, &holder->subobject);
     }
@@ -758,9 +805,23 @@ public:
             createInfo.flags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         createInfo.queueFamilyIndex = queueFamilyIndex;
         handleVulkanResult(vkCreateCommandPool(*device, &createInfo, nullptr, &holder->subobject),
-                           "");
+                           "vkCreateCommandPool");
         holder->valid = true;
         return std::shared_ptr<const VkCommandPool>(holder, &holder->subobject);
+    }
+    std::shared_ptr<const VkCommandBuffer> allocateCommandBuffer(
+        std::shared_ptr<const VkCommandPool> commandPool, VkCommandBufferLevel level)
+    {
+        auto holder = std::make_shared<CommandBufferHolder>(device, std::move(commandPool));
+        VkCommandBufferAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocateInfo.commandPool = *holder->commandPool;
+        allocateInfo.level = level;
+        allocateInfo.commandBufferCount = 1;
+        handleVulkanResult(vkAllocateCommandBuffers(*device, &allocateInfo, &holder->commandBuffer),
+                           "vkAllocateCommandBuffers");
+        holder->vkFreeCommandBuffers = vkFreeCommandBuffers;
+        return std::shared_ptr<const VkCommandBuffer>(holder, &holder->commandBuffer);
     }
     std::shared_ptr<const VkImageView> createImageView(std::shared_ptr<const VkImage> image,
                                                        VkImageViewType viewType,
@@ -810,7 +871,7 @@ public:
         holder->subobject.valid = true;
         return std::shared_ptr<const VkImageView>(holder, &holder->subobject.subobject);
     }
-    void getSwapchainImages(VkFormat swapchainFormat)
+    void getSwapchainImagesAndCreateFrameObjects(VkFormat swapchainFormat)
     {
         struct SwapchainImagesHolder final
         {
@@ -831,8 +892,10 @@ public:
                            "vkGetSwapchainImagesKHR");
         for(auto &image : holder->images)
             swapchainImages.push_back(std::shared_ptr<const VkImage>(holder, &image));
-        for(auto &image : swapchainImages)
-            swapchainImageViews.push_back(createImageView(image,
+
+        for(std::uint32_t frameIndex = 0; frameIndex < swapchainImages.size(); frameIndex++)
+        {
+            swapchainImageViews.push_back(createImageView(swapchainImages[frameIndex],
                                                           VK_IMAGE_VIEW_TYPE_2D,
                                                           swapchainFormat,
                                                           VK_IMAGE_ASPECT_COLOR_BIT,
@@ -840,10 +903,13 @@ public:
                                                           1,
                                                           0,
                                                           1));
+            frames.emplace_back(createFence(true));
+        }
     }
     void createNewSwapchain() // destroys old swapchain
     {
         handleVulkanResult(vkDeviceWaitIdle(*device), "vkDeviceWaitIdle");
+        frames.clear();
         std::shared_ptr<const VkSwapchainKHR> oldSwapchain = std::move(swapchain);
         swapchain = nullptr;
         swapchainImages.clear();
@@ -874,25 +940,25 @@ public:
                                *physicalDevice, *surface, &presentModesCount, presentModes.data()),
                            "vkGetPhysicalDeviceSurfacePresentModesKHR");
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        std::string presentModeStr = "fifo";
         for(auto presentMode : presentModes)
         {
-            std::string presentModeStr = "unknown";
             switch(presentMode)
             {
             case VK_PRESENT_MODE_IMMEDIATE_KHR:
-                presentModeStr = "immediate";
                 if(presentMode != VK_PRESENT_MODE_MAILBOX_KHR)
+                {
+                    presentModeStr = "immediate";
                     presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+                }
                 break;
             case VK_PRESENT_MODE_MAILBOX_KHR:
                 presentModeStr = "mailbox";
                 presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
                 break;
             case VK_PRESENT_MODE_FIFO_KHR:
-                presentModeStr = "fifo";
                 break;
             case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
-                presentModeStr = "fifo relaxed";
                 break;
 
             // so the compiler doesn't complain about missing enum values
@@ -900,8 +966,8 @@ public:
             case VK_PRESENT_MODE_MAX_ENUM_KHR:
                 break;
             }
-            logging::log(logging::Level::Info, "VulkanDriver", "Present Mode: " + presentModeStr);
         }
+        logging::log(logging::Level::Info, "VulkanDriver", "Present Mode: " + presentModeStr);
         std::uint32_t swapchainImageCount = surfaceCapabilities.minImageCount + 1;
         if(surfaceCapabilities.maxImageCount
            && surfaceCapabilities.maxImageCount < swapchainImageCount)
@@ -973,7 +1039,7 @@ public:
         swapchain = std::shared_ptr<const VkSwapchainKHR>(holder, &holder->subobject);
         try
         {
-            getSwapchainImages(surfaceFormat.format);
+            getSwapchainImagesAndCreateFrameObjects(surfaceFormat.format);
         }
         catch(...)
         {
@@ -1181,6 +1247,7 @@ public:
     {
 #warning finish
         vkDeviceWaitIdle(*device); // ignore return value
+        frames.clear();
         swapchainImages.clear();
         swapchainImageViews.clear();
         swapchain = nullptr;
@@ -1269,9 +1336,9 @@ public:
         }
         }
     }
-    void renderFrame(VulkanCommandBuffer &commandBuffer)
+    void renderFrame(VulkanCommandBuffer &commandBufferIn)
     {
-        constexprAssert(commandBuffer.finished);
+        constexprAssert(commandBufferIn.finished);
         if(!swapchain)
             return;
         std::uint32_t imageIndex = 0;
@@ -1283,8 +1350,114 @@ public:
             return;
         }
         handleVulkanResult(acquireNextImageResult, "vkAcquireNextImageKHR");
-        throw std::runtime_error("VulkanDriver not finished");
+        FrameObjects &frame = frames[imageIndex];
+        handleVulkanResult(
+            vkWaitForFences(*device, 1, &*frame.fence, VK_TRUE, static_cast<std::uint64_t>(-1)),
+            "vkWaitForFences");
+        handleVulkanResult(vkResetFences(*device, 1, &*frame.fence), "vkResetFences");
+        auto commandBuffer =
+            allocateCommandBuffer(createCommandPool(true, false, graphicsQueueFamilyIndex),
+                                  VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        VkCommandBufferBeginInfo commandBufferBeginInfo{};
+        commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        handleVulkanResult(vkBeginCommandBuffer(*commandBuffer, &commandBufferBeginInfo),
+                           "vkBeginCommandBuffer");
 #warning finish
+        VkImageMemoryBarrier imageMemoryBarrierBeforeClear{};
+        imageMemoryBarrierBeforeClear.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageMemoryBarrierBeforeClear.srcAccessMask = 0;
+        imageMemoryBarrierBeforeClear.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        imageMemoryBarrierBeforeClear.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageMemoryBarrierBeforeClear.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imageMemoryBarrierBeforeClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierBeforeClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierBeforeClear.image = *swapchainImages[imageIndex];
+        imageMemoryBarrierBeforeClear.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageMemoryBarrierBeforeClear.subresourceRange.baseMipLevel = 0;
+        imageMemoryBarrierBeforeClear.subresourceRange.levelCount = 1;
+        imageMemoryBarrierBeforeClear.subresourceRange.baseArrayLayer = 0;
+        imageMemoryBarrierBeforeClear.subresourceRange.layerCount = 1;
+        vkCmdPipelineBarrier(*commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &imageMemoryBarrierBeforeClear);
+        VkClearColorValue clearColor{};
+        clearColor.float32[0] = commandBufferIn.clearColor.red;
+        clearColor.float32[1] = commandBufferIn.clearColor.green;
+        clearColor.float32[2] = commandBufferIn.clearColor.blue;
+        clearColor.float32[3] = commandBufferIn.clearColor.opacity;
+        VkImageSubresourceRange clearImageSubresourceRange{};
+        clearImageSubresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clearImageSubresourceRange.baseMipLevel = 0;
+        clearImageSubresourceRange.levelCount = 1;
+        clearImageSubresourceRange.baseArrayLayer = 0;
+        clearImageSubresourceRange.layerCount = 1;
+        vkCmdClearColorImage(*commandBuffer,
+                             *swapchainImages[imageIndex],
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                             &clearColor,
+                             1,
+                             &clearImageSubresourceRange);
+        VkImageMemoryBarrier imageMemoryBarrierBetweenClearAndPresent{};
+        imageMemoryBarrierBetweenClearAndPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageMemoryBarrierBetweenClearAndPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        imageMemoryBarrierBetweenClearAndPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+        imageMemoryBarrierBetweenClearAndPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imageMemoryBarrierBetweenClearAndPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        imageMemoryBarrierBetweenClearAndPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierBetweenClearAndPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierBetweenClearAndPresent.image = *swapchainImages[imageIndex];
+        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.aspectMask =
+            VK_IMAGE_ASPECT_COLOR_BIT;
+        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.baseMipLevel = 0;
+        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.levelCount = 1;
+        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.baseArrayLayer = 0;
+        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.layerCount = 1;
+        vkCmdPipelineBarrier(*commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &imageMemoryBarrierBetweenClearAndPresent);
+        handleVulkanResult(vkEndCommandBuffer(*commandBuffer), "vkEndCommandBuffer");
+        const VkPipelineStageFlags waitDestinationStageFlags = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = &*imageAvailableSemaphore;
+        submitInfo.pWaitDstStageMask = &waitDestinationStageFlags;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &*commandBuffer;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = &*renderingFinishedSemaphore;
+        frame.objects.push_back(std::move(commandBuffer));
+        handleVulkanResult(vkQueueSubmit(*graphicsQueue, 1, &submitInfo, *frame.fence),
+                           "vkQueueSubmit");
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = &*renderingFinishedSemaphore;
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = &*swapchain;
+        presentInfo.pImageIndices = &imageIndex;
+        auto presentResult = vkQueuePresentKHR(*presentQueue, &presentInfo);
+        if(presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
+        {
+            createNewSwapchain();
+            return;
+        }
+        handleVulkanResult(presentResult, "vkQueuePresentKHR");
     }
 };
 
