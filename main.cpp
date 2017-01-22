@@ -178,7 +178,7 @@ int main()
     {
     };
 #if 1
-#if 0
+#if 1
     world::initAll(new graphics::drivers::VulkanDriver);
 #else
     world::initAll(new graphics::drivers::OpenGL1Driver);
@@ -189,7 +189,7 @@ int main()
 #endif
     logging::setGlobalLevel(logging::Level::Debug);
     auto theWorld = world::HashlifeWorld::make();
-    constexpr std::int32_t ballSize = 150;
+    constexpr std::int32_t ballSize = 10;
     constexpr std::int32_t renderRange = ballSize + 1;
     struct DeferredBlocksArray
     {

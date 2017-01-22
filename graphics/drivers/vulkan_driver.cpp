@@ -443,6 +443,10 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)                     \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFence)                               \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFence)                              \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateCommandPool)                         \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyCommandPool)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDeviceWaitIdle)
 
 #define VULKAN_DRIVER_GLOBAL_FUNCTION(name) PFN_##name name = nullptr;
@@ -715,6 +719,48 @@ public:
                            "");
         holder->valid = true;
         return std::shared_ptr<const VkSemaphore>(holder, &holder->subobject);
+    }
+    std::shared_ptr<const VkFence> createFence(bool signaled = false)
+    {
+        const auto vkDestroyFence = this->vkDestroyFence;
+        auto destroyFn =
+            [vkDestroyFence](const std::shared_ptr<const VkDevice> &device, VkFence fence)
+        {
+            vkDestroyFence(*device, fence, nullptr);
+        };
+        auto holder = std::make_shared<DeviceSubobjectHolder<VkFence, decltype(destroyFn)>>(
+            device, std::move(destroyFn));
+        VkFenceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        if(signaled)
+            createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        handleVulkanResult(vkCreateFence(*device, &createInfo, nullptr, &holder->subobject), "");
+        holder->valid = true;
+        return std::shared_ptr<const VkFence>(holder, &holder->subobject);
+    }
+    std::shared_ptr<const VkCommandPool> createCommandPool(bool transient,
+                                                           bool resettable,
+                                                           std::uint32_t queueFamilyIndex)
+    {
+        const auto vkDestroyCommandPool = this->vkDestroyCommandPool;
+        auto destroyFn = [vkDestroyCommandPool](const std::shared_ptr<const VkDevice> &device,
+                                                VkCommandPool fence)
+        {
+            vkDestroyCommandPool(*device, fence, nullptr);
+        };
+        auto holder = std::make_shared<DeviceSubobjectHolder<VkCommandPool, decltype(destroyFn)>>(
+            device, std::move(destroyFn));
+        VkCommandPoolCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        if(transient)
+            createInfo.flags |= VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+        if(resettable)
+            createInfo.flags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        createInfo.queueFamilyIndex = queueFamilyIndex;
+        handleVulkanResult(vkCreateCommandPool(*device, &createInfo, nullptr, &holder->subobject),
+                           "");
+        holder->valid = true;
+        return std::shared_ptr<const VkCommandPool>(holder, &holder->subobject);
     }
     std::shared_ptr<const VkImageView> createImageView(std::shared_ptr<const VkImage> image,
                                                        VkImageViewType viewType,
@@ -1230,7 +1276,7 @@ public:
             return;
         std::uint32_t imageIndex = 0;
         VkResult acquireNextImageResult = vkAcquireNextImageKHR(
-            *device, *swapchain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+            *device, *swapchain, UINT64_MAX, *imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
         if(acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR)
         {
             createNewSwapchain();
