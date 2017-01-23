@@ -54,6 +54,10 @@ namespace graphics
 {
 namespace drivers
 {
+namespace
+{
+#include "vulkan.frag.h"
+}
 struct VulkanDriver::Implementation final
 {
 public:
