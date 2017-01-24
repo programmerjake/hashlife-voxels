@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <memory>
 #include <stdexcept>
+#include <cstddef>
 #include <vector>
 #include <sstream>
 #include <cstdint>
@@ -238,17 +239,139 @@ public:
         {
         }
     };
+    struct VulkanVec4 final
+    {
+        float v[4];
+        constexpr VulkanVec4() noexcept : v{}
+        {
+        }
+        constexpr VulkanVec4(const ColorF &v) noexcept : v{v.red, v.green, v.blue, v.opacity}
+        {
+        }
+    };
+    struct VulkanVec3 final
+    {
+        float v[3];
+        constexpr VulkanVec3() noexcept : v{}
+        {
+        }
+        constexpr VulkanVec3(const util::Vector3F &v) noexcept : v{v.x, v.y, v.z}
+        {
+        }
+    };
+    struct VulkanVec2 final
+    {
+        float v[2];
+        constexpr VulkanVec2() noexcept : v{}
+        {
+        }
+        constexpr VulkanVec2(const TextureCoordinates &v) noexcept : v{v.u, v.v}
+        {
+        }
+    };
+    struct VulkanVertex final
+    {
+        VulkanVec3 position;
+        static constexpr std::uint32_t positionLocation = 0;
+        static constexpr VkFormat positionFormat = VK_FORMAT_R32G32B32_SFLOAT;
+        VulkanVec4 color;
+        static constexpr std::uint32_t colorLocation = 1;
+        static constexpr VkFormat colorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+        VulkanVec2 textureCoordinates;
+        static constexpr std::uint32_t textureCoordinatesLocation = 2;
+        static constexpr VkFormat textureCoordinatesFormat = VK_FORMAT_R32G32_SFLOAT;
+        constexpr VulkanVertex() noexcept : position(), color(), textureCoordinates()
+        {
+        }
+        constexpr VulkanVertex(const Vertex &v) noexcept
+            : position(v.getPosition()),
+              color(v.getColor()),
+              textureCoordinates(v.getTextureCoordinates())
+        {
+        }
+        constexpr VulkanVertex(const VertexWithoutNormal &v) noexcept
+            : position(v.getPosition()),
+              color(v.getColor()),
+              textureCoordinates(v.getTextureCoordinates())
+        {
+        }
+    };
+    struct VulkanTriangle final
+    {
+        VulkanVertex v[3];
+        constexpr VulkanTriangle() noexcept : v{}
+        {
+        }
+        constexpr VulkanTriangle(const Triangle &v) noexcept : v{VulkanVertex(v.vertices[0]),
+                                                                 VulkanVertex(v.vertices[1]),
+                                                                 VulkanVertex(v.vertices[2])}
+        {
+        }
+        constexpr VulkanTriangle(const TriangleWithoutNormal &v) noexcept
+            : v{VulkanVertex(v.vertices[0]),
+                VulkanVertex(v.vertices[1]),
+                VulkanVertex(v.vertices[2])}
+        {
+        }
+    };
+    static_assert(sizeof(VulkanTriangle) == 3 * sizeof(VulkanVertex), "");
+    class TemporaryTriangleBuffer final
+    {
+        TemporaryTriangleBuffer(const TemporaryTriangleBuffer &) = delete;
+        TemporaryTriangleBuffer &operator=(const TemporaryTriangleBuffer &) = delete;
+
+    private:
+        static const std::size_t localBufferSize = 16;
+        TriangleWithoutNormal localBuffer[localBufferSize];
+        TriangleWithoutNormal *buffer;
+        std::size_t bufferSize;
+
+    public:
+        TemporaryTriangleBuffer() noexcept : localBuffer{},
+                                             buffer(&localBuffer[0]),
+                                             bufferSize(localBufferSize)
+        {
+        }
+        ~TemporaryTriangleBuffer()
+        {
+            freeHeapMemory();
+        }
+        void freeHeapMemory() noexcept
+        {
+            if(buffer != &localBuffer[0])
+            {
+                delete[] buffer;
+                buffer = &localBuffer[0];
+                bufferSize = localBufferSize;
+            }
+        }
+        void requireSize(std::size_t requiredSize)
+        {
+            if(requiredSize > bufferSize)
+            {
+                freeHeapMemory();
+                bufferSize = requiredSize;
+                buffer = new TriangleWithoutNormal[requiredSize];
+            }
+        }
+        TriangleWithoutNormal *get() const noexcept
+        {
+            return buffer;
+        }
+    };
     struct VulkanRenderBuffer final : public RenderBuffer
     {
 #warning finish
     private:
         struct TriangleBuffer final
         {
-            std::unique_ptr<Triangle[]> buffer;
+            std::unique_ptr<VulkanTriangle[]> buffer;
             std::size_t bufferSize;
             std::size_t bufferUsed;
             TriangleBuffer(std::size_t size = 0)
-                : buffer(size > 0 ? new Triangle[size] : nullptr), bufferSize(size), bufferUsed(0)
+                : buffer(size > 0 ? new VulkanTriangle[size] : nullptr),
+                  bufferSize(size),
+                  bufferUsed(0)
             {
             }
             std::size_t allocateSpace(std::size_t triangleCount) noexcept
@@ -324,6 +447,7 @@ public:
         virtual void appendBuffer(const ReadableRenderBuffer &buffer) override
         {
             constexprAssert(!finished);
+            TemporaryTriangleBuffer tempBuffer;
             for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
@@ -331,12 +455,14 @@ public:
                 if(!triangleCount)
                     continue;
                 std::size_t location = triangleBuffer.allocateSpace(triangleCount);
-                buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+                tempBuffer.requireSize(triangleCount);
+                buffer.readTriangles(renderLayer, tempBuffer.get(), triangleCount);
                 for(std::size_t i = 0; i < triangleCount; i++)
                 {
-                    constexprAssert(triangleBuffer.buffer[location + i].texture.value == nullptr
+                    constexprAssert(tempBuffer.get()[i].texture.value == nullptr
                                     || dynamic_cast<const VulkanTextureImplementation *>(
-                                           triangleBuffer.buffer[location + i].texture.value));
+                                           tempBuffer.get()[i].texture.value));
+                    triangleBuffer.buffer[i + location] = tempBuffer.get()[i];
                 }
             }
         }
@@ -344,6 +470,7 @@ public:
                                   const Transform &tform) override
         {
             constexprAssert(!finished);
+            TemporaryTriangleBuffer tempBuffer;
             for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
@@ -351,14 +478,14 @@ public:
                 if(!triangleCount)
                     continue;
                 std::size_t location = triangleBuffer.allocateSpace(triangleCount);
-                buffer.readTriangles(renderLayer, &triangleBuffer.buffer[location], triangleCount);
+                tempBuffer.requireSize(triangleCount);
+                buffer.readTriangles(renderLayer, tempBuffer.get(), triangleCount);
                 for(std::size_t i = 0; i < triangleCount; i++)
                 {
-                    constexprAssert(triangleBuffer.buffer[location + i].texture.value == nullptr
+                    constexprAssert(tempBuffer.get()[i].texture.value == nullptr
                                     || dynamic_cast<const VulkanTextureImplementation *>(
-                                           triangleBuffer.buffer[location + i].texture.value));
-                    triangleBuffer.buffer[location + i] =
-                        transform(tform, triangleBuffer.buffer[location + i]);
+                                           tempBuffer.get()[i].texture.value));
+                    triangleBuffer.buffer[i + location] = transform(tform, tempBuffer.get()[i]);
                 }
             }
         }
@@ -456,6 +583,7 @@ public:
     std::vector<std::shared_ptr<const VkImage>> swapchainImages{};
     std::vector<std::shared_ptr<const VkImageView>> swapchainImageViews{};
     std::vector<FrameObjects> frames;
+    std::shared_ptr<const VkPipeline> renderPipeline;
 
 public:
 #define VULKAN_DRIVER_END()
@@ -926,6 +1054,8 @@ public:
     std::shared_ptr<const VkPipeline> createPipeline(
         std::shared_ptr<const VkShaderModule> vertexShader,
         std::shared_ptr<const VkShaderModule> fragmentShader,
+        bool depthWritingEnabled,
+        bool earlyZTestEnabled,
         std::shared_ptr<const VkPipelineLayout> layout,
         std::shared_ptr<const VkRenderPass> renderPass,
         std::uint32_t subpass)
@@ -974,30 +1104,84 @@ public:
             fragmentStage.module = *fragmentShader;
             fragmentStage.pName = "main";
         }
+        const std::size_t vertexBindingDescriptionCount = 1;
+        VkVertexInputBindingDescription vertexBindingDescriptions[vertexBindingDescriptionCount] =
+            {};
+        vertexBindingDescriptions[0].binding = 0;
+        vertexBindingDescriptions[0].stride = sizeof(VulkanVertex);
+        vertexBindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        const std::size_t vertexAttributeDescriptionCount = 3;
+        VkVertexInputAttributeDescription
+            vertexAttributeDescriptions[vertexAttributeDescriptionCount] = {};
+        // must match VulkanVertex and vulkan.vert
+        vertexAttributeDescriptions[0].location = VulkanVertex::positionLocation;
+        vertexAttributeDescriptions[0].binding = 0;
+        vertexAttributeDescriptions[0].format = VulkanVertex::positionFormat;
+        vertexAttributeDescriptions[0].offset = offsetof(VulkanVertex, position);
+        vertexAttributeDescriptions[1].location = VulkanVertex::colorLocation;
+        vertexAttributeDescriptions[1].binding = 0;
+        vertexAttributeDescriptions[1].format = VulkanVertex::colorFormat;
+        vertexAttributeDescriptions[1].offset = offsetof(VulkanVertex, color);
+        vertexAttributeDescriptions[2].location = VulkanVertex::textureCoordinatesLocation;
+        vertexAttributeDescriptions[2].binding = 0;
+        vertexAttributeDescriptions[2].format = VulkanVertex::textureCoordinatesFormat;
+        vertexAttributeDescriptions[2].offset = offsetof(VulkanVertex, textureCoordinates);
         VkPipelineVertexInputStateCreateInfo vertexInputState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        vertexInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputState.vertexBindingDescriptionCount = vertexBindingDescriptionCount;
+        vertexInputState.pVertexBindingDescriptions = &vertexBindingDescriptions[0];
+        vertexInputState.vertexAttributeDescriptionCount = vertexAttributeDescriptionCount;
+        vertexInputState.pVertexAttributeDescriptions = &vertexAttributeDescriptions[0];
         VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssemblyState.primitiveRestartEnable = VK_FALSE;
         VkPipelineViewportStateCreateInfo viewportState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.pViewports = nullptr;
+        viewportState.scissorCount = 1;
+        viewportState.pScissors = nullptr;
         VkPipelineRasterizationStateCreateInfo rasterizationState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        rasterizationState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizationState.depthClampEnable = VK_FALSE;
+        rasterizationState.rasterizerDiscardEnable = earlyZTestEnabled ? VK_TRUE : VK_FALSE;
+        rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+        rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
+#warning verify clockwise
+        rasterizationState.depthBiasEnable = VK_FALSE;
+        rasterizationState.lineWidth = 1;
         VkPipelineMultisampleStateCreateInfo multisampleState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        multisampleState.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        multisampleState.sampleShadingEnable = VK_FALSE;
+        multisampleState.alphaToCoverageEnable = VK_FALSE;
+        multisampleState.alphaToOneEnable = VK_FALSE;
         VkPipelineDepthStencilStateCreateInfo depthStencilState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencilState.depthTestEnable = VK_FALSE;
+#warning todo: enable depth testing
+        depthStencilState.depthWriteEnable = depthWritingEnabled ? VK_TRUE : VK_FALSE;
+        depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+        VkPipelineColorBlendAttachmentState colorBlendAttachmentState{};
+        colorBlendAttachmentState.blendEnable = VK_FALSE;
+#warning todo: enable blending
+        colorBlendAttachmentState.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT
+            | VK_COLOR_COMPONENT_A_BIT;
         VkPipelineColorBlendStateCreateInfo colorBlendState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        colorBlendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlendState.logicOpEnable = VK_FALSE;
+        colorBlendState.attachmentCount = 1;
+        colorBlendState.pAttachments = &colorBlendAttachmentState;
+        std::initializer_list<VkDynamicState> dynamicStates = {
+            VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+        };
         VkPipelineDynamicStateCreateInfo dynamicState{};
-#warning finish
-        throw std::runtime_error("finish VulkanDriver");
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = dynamicStates.size();
+        dynamicState.pDynamicStates = dynamicStates.begin();
         VkGraphicsPipelineCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         createInfo.stageCount = stageCount;
@@ -1069,6 +1253,7 @@ public:
         frames.clear();
         std::shared_ptr<const VkSwapchainKHR> oldSwapchain = std::move(swapchain);
         swapchain = nullptr;
+        renderPipeline = nullptr;
         swapchainImages.clear();
         swapchainImageViews.clear();
         VkSurfaceCapabilitiesKHR surfaceCapabilities;
@@ -1197,13 +1382,18 @@ public:
         try
         {
             getSwapchainImagesAndCreateFrameObjects(surfaceFormat.format);
+#if 1
+#warning finish creating pipeline
+#else
+            renderPipeline = createPipeline(vertexShaderModule, fragmentShaderModule, true, false, );
+#endif
         }
         catch(...)
         {
             swapchain = nullptr;
+            renderPipeline = nullptr;
             throw;
         }
-        oldSwapchain = nullptr;
     }
     void createGraphicsContext()
     {
@@ -1411,6 +1601,7 @@ public:
         swapchainImages.clear();
         swapchainImageViews.clear();
         swapchain = nullptr;
+        renderPipeline = nullptr;
         imageAvailableSemaphore = nullptr;
         renderingFinishedSemaphore = nullptr;
         vertexShaderModule = nullptr;

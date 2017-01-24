@@ -21,10 +21,14 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
+/* input variables; must match VulkanDriver::Implementation::VulkanVertex in vulkan_driver.cpp */
 layout(location = 0) in vec3 positionIn;
 layout(location = 1) in vec4 colorIn;
+layout(location = 2) in vec2 textureCoordinatesIn;
 
+/* output variables; must match input variables in vulkan.frag */
 layout(location = 0) out vec4 colorOut;
+layout(location = 1) out vec2 textureCoordinatesOut;
 
 out gl_PerVertex
 {

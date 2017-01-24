@@ -21,13 +21,15 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(location = 0) in vec4 inColor;
+/* input variables; must match output variables in vulkan.vert */
+layout(location = 0) in vec4 colorIn;
+layout(location = 1) in vec2 textureCoordinatesIn;
 
-layout(location = 0) out vec4 outColor;
+layout(location = 0) out vec4 colorOut;
 
 void main()
 {
-    if(inColor.a == 0)
+    if(colorIn.a == 0)
         discard;
-    outColor = inColor;
+    colorOut = colorIn;
 }
