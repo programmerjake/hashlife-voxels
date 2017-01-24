@@ -59,7 +59,7 @@ function compile()
  *
  */
 
-std::uint32_t ${variableName}[] =
+const std::uint32_t ${variableName}[] =
 {
 EOF
     hexdump -v -e '/4 "    0x%08X,\n"' < "${fileName}.spv" >> "${fileName}.h"
@@ -69,5 +69,6 @@ EOF
 }
 
 compile vulkan.frag vulkanFragmentShader
+compile vulkan.vert vulkanVertexShader
 
 

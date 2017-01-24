@@ -56,6 +56,7 @@ namespace drivers
 {
 namespace
 {
+#include "vulkan.vert.h"
 #include "vulkan.frag.h"
 }
 struct VulkanDriver::Implementation final
@@ -447,6 +448,8 @@ public:
     std::shared_ptr<const VkDevice> device = nullptr;
     std::shared_ptr<const VkQueue> graphicsQueue = nullptr;
     std::shared_ptr<const VkQueue> presentQueue = nullptr;
+    std::shared_ptr<const VkShaderModule> vertexShaderModule = nullptr;
+    std::shared_ptr<const VkShaderModule> fragmentShaderModule = nullptr;
     std::shared_ptr<const VkSemaphore> imageAvailableSemaphore = nullptr;
     std::shared_ptr<const VkSemaphore> renderingFinishedSemaphore = nullptr;
     std::shared_ptr<const VkSwapchainKHR> swapchain = nullptr;
@@ -464,13 +467,17 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdPipelineBarrier)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateCommandPool)                         \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFence)                               \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateGraphicsPipelines)                   \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSemaphore)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateShaderModule)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSwapchainKHR)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyCommandPool)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFence)                              \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipeline)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySemaphore)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyShaderModule)                       \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySwapchainKHR)                       \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDeviceWaitIdle)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkEndCommandBuffer)                          \
@@ -875,6 +882,152 @@ public:
         holder->subobject.valid = true;
         return std::shared_ptr<const VkImageView>(holder, &holder->subobject.subobject);
     }
+    std::shared_ptr<const VkShaderModule> createShaderModule(const void *code,
+                                                             std::size_t codeSizeInBytes)
+    {
+        const auto vkDestroyShaderModule = this->vkDestroyShaderModule;
+        auto destroyFn = [vkDestroyShaderModule](const std::shared_ptr<const VkDevice> &device,
+                                                 VkShaderModule shader)
+        {
+            vkDestroyShaderModule(*device, shader, nullptr);
+        };
+        auto holder = std::make_shared<DeviceSubobjectHolder<VkShaderModule, decltype(destroyFn)>>(
+            device, std::move(destroyFn));
+        VkShaderModuleCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        createInfo.codeSize = codeSizeInBytes;
+        createInfo.pCode = reinterpret_cast<const std::uint32_t *>(code);
+        handleVulkanResult(vkCreateShaderModule(*device, &createInfo, nullptr, &holder->subobject),
+                           "vkCreateShaderModule");
+        holder->valid = true;
+        return std::shared_ptr<const VkShaderModule>(holder, &holder->subobject);
+    }
+    std::shared_ptr<const VkShaderModule> createShaderModule(const std::uint32_t *code,
+                                                             std::size_t codeSizeInWords)
+    {
+        return createShaderModule(static_cast<const void *>(code),
+                                  codeSizeInWords * sizeof(std::uint32_t));
+    }
+    template <std::size_t N>
+    std::shared_ptr<const VkShaderModule> createShaderModule(const std::uint32_t(&code)[N])
+    {
+        return createShaderModule(code, N);
+    }
+    std::shared_ptr<const VkShaderModule> createShaderModule(const std::vector<std::uint32_t> &code)
+    {
+        return createShaderModule(code.data(), code.size());
+    }
+    std::shared_ptr<const VkShaderModule> createShaderModule(
+        const char *code,
+        std::size_t codeSizeInBytes) // requires VK_NV_glsl_shader extension
+    {
+        return createShaderModule(static_cast<const void *>(code), codeSizeInBytes);
+    }
+    std::shared_ptr<const VkPipeline> createPipeline(
+        std::shared_ptr<const VkShaderModule> vertexShader,
+        std::shared_ptr<const VkShaderModule> fragmentShader,
+        std::shared_ptr<const VkPipelineLayout> layout,
+        std::shared_ptr<const VkRenderPass> renderPass,
+        std::uint32_t subpass)
+    {
+        auto vkDestroyPipeline = this->vkDestroyPipeline;
+        auto destroyFn =
+            [vkDestroyPipeline](const std::shared_ptr<const VkDevice> &device, VkPipeline pipeline)
+        {
+            vkDestroyPipeline(*device, pipeline, nullptr);
+        };
+        typedef decltype(destroyFn) destroyFnType;
+        struct Holder final
+        {
+            std::shared_ptr<const VkShaderModule> vertexShader;
+            std::shared_ptr<const VkShaderModule> fragmentShader;
+            std::shared_ptr<const VkPipelineLayout> layout;
+            std::shared_ptr<const VkRenderPass> renderPass;
+            DeviceSubobjectHolder<VkPipeline, destroyFnType> subobject;
+            Holder(std::shared_ptr<const VkShaderModule> vertexShader,
+                   std::shared_ptr<const VkShaderModule> fragmentShader,
+                   std::shared_ptr<const VkPipelineLayout> layout,
+                   std::shared_ptr<const VkRenderPass> renderPass,
+                   std::shared_ptr<const VkDevice> device,
+                   destroyFnType &&destroyFn)
+                : vertexShader(std::move(vertexShader)),
+                  fragmentShader(std::move(fragmentShader)),
+                  layout(std::move(layout)),
+                  renderPass(std::move(renderPass)),
+                  subobject(std::move(device), std::move(destroyFn))
+            {
+            }
+        };
+        const std::size_t stageCount = 2;
+        VkPipelineShaderStageCreateInfo stages[stageCount] = {};
+        {
+            VkPipelineShaderStageCreateInfo &vertexStage = stages[0];
+            vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+            vertexStage.module = *vertexShader;
+            vertexStage.pName = "main";
+        }
+        {
+            VkPipelineShaderStageCreateInfo &fragmentStage = stages[1];
+            fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+            fragmentStage.module = *fragmentShader;
+            fragmentStage.pName = "main";
+        }
+        VkPipelineVertexInputStateCreateInfo vertexInputState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkPipelineViewportStateCreateInfo viewportState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkPipelineRasterizationStateCreateInfo rasterizationState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkPipelineMultisampleStateCreateInfo multisampleState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkPipelineDepthStencilStateCreateInfo depthStencilState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkPipelineColorBlendStateCreateInfo colorBlendState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+#warning finish
+        throw std::runtime_error("finish VulkanDriver");
+        VkGraphicsPipelineCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        createInfo.stageCount = stageCount;
+        createInfo.pStages = &stages[0];
+        createInfo.pVertexInputState = &vertexInputState;
+        createInfo.pInputAssemblyState = &inputAssemblyState;
+        createInfo.pViewportState = &viewportState;
+        createInfo.pRasterizationState = &rasterizationState;
+        createInfo.pMultisampleState = &multisampleState;
+        createInfo.pDepthStencilState = &depthStencilState;
+        createInfo.pColorBlendState = &colorBlendState;
+        createInfo.pDynamicState = &dynamicState;
+        createInfo.layout = *layout;
+        createInfo.renderPass = *renderPass;
+        createInfo.subpass = subpass;
+        createInfo.basePipelineHandle = VK_NULL_HANDLE;
+        createInfo.basePipelineIndex = -1;
+        auto holder = std::make_shared<Holder>(std::move(vertexShader),
+                                               std::move(fragmentShader),
+                                               std::move(layout),
+                                               std::move(renderPass),
+                                               device,
+                                               std::move(destroyFn));
+        handleVulkanResult(
+            vkCreateGraphicsPipelines(
+                *device, VK_NULL_HANDLE, 1, &createInfo, nullptr, &holder->subobject.subobject),
+            "vkCreateGraphicsPipelines");
+        holder->subobject.valid = true;
+        return std::shared_ptr<const VkPipeline>(holder, &holder->subobject.subobject);
+    }
     void getSwapchainImagesAndCreateFrameObjects(VkFormat swapchainFormat)
     {
         struct SwapchainImagesHolder final
@@ -1243,6 +1396,9 @@ public:
             presentQueue = graphicsQueue;
         else
             presentQueue = getQueue(device, presentQueueFamilyIndex, 0);
+        vertexShaderModule = createShaderModule(vulkanVertexShader);
+        fragmentShaderModule = createShaderModule(vulkanFragmentShader);
+        std::shared_ptr<const VkShaderModule> fragmentShaderModule = nullptr;
         imageAvailableSemaphore = createSemaphore();
         renderingFinishedSemaphore = createSemaphore();
         createNewSwapchain();
@@ -1257,6 +1413,8 @@ public:
         swapchain = nullptr;
         imageAvailableSemaphore = nullptr;
         renderingFinishedSemaphore = nullptr;
+        vertexShaderModule = nullptr;
+        fragmentShaderModule = nullptr;
         graphicsQueue = nullptr;
         presentQueue = nullptr;
         device = nullptr;
