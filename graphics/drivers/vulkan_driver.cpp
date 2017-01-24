@@ -597,6 +597,7 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFence)                               \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateGraphicsPipelines)                   \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreatePipelineLayout)                      \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSemaphore)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateShaderModule)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSwapchainKHR)                        \
@@ -604,6 +605,7 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFence)                              \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipeline)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipelineLayout)                     \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySemaphore)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyShaderModule)                       \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySwapchainKHR)                       \
@@ -1212,6 +1214,47 @@ public:
         holder->subobject.valid = true;
         return std::shared_ptr<const VkPipeline>(holder, &holder->subobject.subobject);
     }
+    std::shared_ptr<const VkPipelineLayout> createPipelineLayout(
+        std::vector<std::shared_ptr<const VkDescriptorSetLayout>> descriptorSetLayouts)
+    {
+        const auto vkDestroyPipelineLayout = this->vkDestroyPipelineLayout;
+        auto destroyFn = [vkDestroyPipelineLayout](const std::shared_ptr<const VkDevice> &device,
+                                                   VkPipelineLayout pipelineLayout)
+        {
+            vkDestroyPipelineLayout(*device, pipelineLayout, nullptr);
+        };
+        typedef decltype(destroyFn) destroyFnType;
+        struct Holder final
+        {
+            std::vector<std::shared_ptr<const VkDescriptorSetLayout>> descriptorSetLayouts;
+            DeviceSubobjectHolder<VkPipelineLayout, destroyFnType> subobject;
+            Holder(std::vector<std::shared_ptr<const VkDescriptorSetLayout>> descriptorSetLayouts,
+                   std::shared_ptr<const VkDevice> device,
+                   destroyFnType &&destroyFn)
+                : descriptorSetLayouts(std::move(descriptorSetLayouts)),
+                  subobject(std::move(device), std::move(destroyFn))
+            {
+            }
+        };
+        VkPipelineLayoutCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        std::vector<VkDescriptorSetLayout> descriptorSetLayoutArray;
+        descriptorSetLayoutArray.reserve(descriptorSetLayouts.size());
+        for(auto &i : descriptorSetLayouts)
+            descriptorSetLayoutArray.push_back(*i);
+        createInfo.setLayoutCount = descriptorSetLayoutArray.size();
+        createInfo.pSetLayouts = descriptorSetLayoutArray.data();
+        std::initializer_list<VkPushConstantRange> pushConstantRanges = {};
+        createInfo.pushConstantRangeCount = pushConstantRanges.size();
+        createInfo.pPushConstantRanges = pushConstantRanges.begin();
+        auto holder =
+            std::make_shared<Holder>(std::move(descriptorSetLayouts), device, std::move(destroyFn));
+        handleVulkanResult(
+            vkCreatePipelineLayout(*device, &createInfo, nullptr, &holder->subobject.subobject),
+            "vkCreatePipelineLayout");
+        holder->subobject.valid = true;
+        return std::shared_ptr<const VkPipelineLayout>(holder, &holder->subobject.subobject);
+    }
     void getSwapchainImagesAndCreateFrameObjects(VkFormat swapchainFormat)
     {
         struct SwapchainImagesHolder final
@@ -1385,7 +1428,8 @@ public:
 #if 1
 #warning finish creating pipeline
 #else
-            renderPipeline = createPipeline(vertexShaderModule, fragmentShaderModule, true, false, );
+            renderPipeline =
+                createPipeline(vertexShaderModule, fragmentShaderModule, true, false, createPipelineLayout({}), );
 #endif
         }
         catch(...)
