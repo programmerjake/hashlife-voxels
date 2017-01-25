@@ -178,7 +178,7 @@ int main()
     {
     };
 #if 1
-#if 1
+#if 0
     world::initAll(new graphics::drivers::VulkanDriver);
 #else
     world::initAll(new graphics::drivers::OpenGL1Driver);

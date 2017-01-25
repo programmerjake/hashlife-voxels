@@ -19,6 +19,9 @@
  *
  */
 #include "vulkan_driver.h"
+#if 1
+#warning finish VulkanDriver
+#else
 #include "../../logging/logging.h"
 #include <cassert>
 #include <cstdlib>
@@ -75,6 +78,69 @@ public:
             Implementation *implementation,
             const std::shared_ptr<const VkInstance> &instance,
             const SDL_SysWMinfo &wmInfo) const = 0;
+    };
+    struct DeviceMemoryAllocation final
+    {
+        std::shared_ptr<const VkDeviceMemory> deviceMemory;
+        VkDeviceSize start;
+        DeviceMemoryAllocation(std::shared_ptr<const VkDeviceMemory> deviceMemory,
+                               VkDeviceSize start)
+            : deviceMemory(std::move(deviceMemory)), start(start)
+        {
+        }
+        DeviceMemoryAllocation() : deviceMemory(), start()
+        {
+        }
+    };
+    class DeviceMemoryAllocator final
+    {
+        DeviceMemoryAllocator(const DeviceMemoryAllocator &) = delete;
+        DeviceMemoryAllocator &operator=(const DeviceMemoryAllocator &) = delete;
+
+    private:
+        static constexpr VkDeviceSize chunkSize = static_cast<VkDeviceSize>(1) << 20; // 1MB
+        static constexpr VkDeviceSize bigAllocationMinimumSize = static_cast<VkDeviceSize>(1)
+                                                                 << 18; // 256kB
+        std::shared_ptr<const VkDevice> device;
+        std::mutex lock;
+        struct Subchunk final
+        {
+            VkDeviceSize startOffset;
+            VkDeviceSize size;
+        };
+        struct SubchunkStartOffsetLess final
+        {
+            bool operator()(const Subchunk &a, const Subchunk &b) const noexcept
+            {
+                return a.startOffset < b.startOffset;
+            }
+        };
+        struct SubchunkSizeLess final
+        {
+            bool operator()(const Subchunk &a, const Subchunk &b) const noexcept
+            {
+                return a.size < b.size;
+            }
+        };
+        struct Chunk final
+        {
+            std::shared_ptr<const VkDeviceMemory> deviceMemory;
+        };
+        std::vector<Chunk> chunks;
+#error finish
+    };
+    class Buffer final
+    {
+        Buffer(const Buffer &) = delete;
+        Buffer &operator=(const Buffer &) = delete;
+
+    private:
+        std::shared_ptr<const VkDevice> device;
+        std::shared_ptr<const VkDeviceMemory> deviceMemory;
+        PFN_vkDestroyBuffer vkDestroyBuffer;
+        PFN_vkMapMemory vkMapMemory;
+        PFN_vkUnmapMemory vkUnmapMemory;
+#error finish
     };
     struct InstanceHolder final
     {
@@ -568,6 +634,7 @@ public:
     const WMHelper *wmHelper = nullptr;
     std::shared_ptr<const VkSurfaceKHR> surface = nullptr;
     VkPhysicalDeviceProperties physicalDeviceProperties;
+    VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
     VkPhysicalDeviceFeatures physicalDeviceFeatures;
     std::uint32_t graphicsQueueFamilyIndex = 0;
     std::uint32_t presentQueueFamilyIndex = 0;
@@ -582,42 +649,60 @@ public:
     std::shared_ptr<const VkSwapchainKHR> swapchain = nullptr;
     std::vector<std::shared_ptr<const VkImage>> swapchainImages{};
     std::vector<std::shared_ptr<const VkImageView>> swapchainImageViews{};
-    std::vector<FrameObjects> frames;
+    std::deque<FrameObjects> frames;
+    std::shared_ptr<const VkRenderPass> renderPass;
     std::shared_ptr<const VkPipeline> renderPipeline;
+    VkExtent2D swapchainExtent{};
 
 public:
 #define VULKAN_DRIVER_END()
 #define VULKAN_DRIVER_FUNCTIONS()                                              \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkAcquireNextImageKHR)                       \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkAllocateCommandBuffers)                    \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkAllocateMemory)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkBeginCommandBuffer)                        \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdClearColorImage)                        \
-    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdPipelineBarrier)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkBindBufferMemory)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdBeginRenderPass)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdBindPipeline)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdBindVertexBuffers)                      \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdDraw)                                   \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdEndRenderPass)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdSetScissor)                             \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdSetViewport)                            \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateBuffer)                              \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateCommandPool)                         \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFence)                               \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFramebuffer)                         \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateGraphicsPipelines)                   \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreatePipelineLayout)                      \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateRenderPass)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSemaphore)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateShaderModule)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSwapchainKHR)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyBuffer)                             \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyCommandPool)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFence)                              \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFramebuffer)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipeline)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipelineLayout)                     \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyRenderPass)                         \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySemaphore)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyShaderModule)                       \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySwapchainKHR)                       \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDeviceWaitIdle)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkEndCommandBuffer)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkFreeCommandBuffers)                        \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkFreeMemory)                                \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetDeviceQueue)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetFenceStatus)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)                     \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkMapMemory)                                 \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkQueuePresentKHR)                           \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkQueueSubmit)                               \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkResetFences)                               \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkUnmapMemory)                               \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkWaitForFences)                             \
     VULKAN_DRIVER_GLOBAL_FUNCTION(vkCreateInstance)                            \
     VULKAN_DRIVER_GLOBAL_FUNCTION(vkEnumerateInstanceExtensionProperties)      \
@@ -627,6 +712,7 @@ public:
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkEnumeratePhysicalDevices)                \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetDeviceProcAddr)                       \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceFeatures)               \
+    VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceMemoryProperties)       \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceProperties)             \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties)  \
     VULKAN_DRIVER_INSTANCE_FUNCTION(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) \
@@ -1255,40 +1341,209 @@ public:
         holder->subobject.valid = true;
         return std::shared_ptr<const VkPipelineLayout>(holder, &holder->subobject.subobject);
     }
-    void getSwapchainImagesAndCreateFrameObjects(VkFormat swapchainFormat)
+    std::shared_ptr<const VkRenderPass> createRenderPass(VkFormat swapChainImageFormat)
     {
-        struct SwapchainImagesHolder final
+        const auto vkDestroyRenderPass = this->vkDestroyRenderPass;
+        auto destroyFn = [vkDestroyRenderPass](const std::shared_ptr<const VkDevice> &device,
+                                               VkRenderPass renderPass)
         {
-            std::shared_ptr<const VkSwapchainKHR> swapchain;
-            std::vector<VkImage> images;
+            vkDestroyRenderPass(*device, renderPass, nullptr);
         };
-        auto holder = std::make_shared<SwapchainImagesHolder>();
-        holder->swapchain = swapchain;
-        std::uint32_t swapchainImageCount = 0;
-        handleVulkanResult(
-            vkGetSwapchainImagesKHR(*device, *swapchain, &swapchainImageCount, nullptr),
-            "vkGetSwapchainImagesKHR");
-        holder->images.resize(swapchainImageCount);
-        swapchainImages.clear();
-        swapchainImageViews.clear();
-        handleVulkanResult(vkGetSwapchainImagesKHR(
-                               *device, *swapchain, &swapchainImageCount, holder->images.data()),
-                           "vkGetSwapchainImagesKHR");
-        for(auto &image : holder->images)
-            swapchainImages.push_back(std::shared_ptr<const VkImage>(holder, &image));
-
-        for(std::uint32_t frameIndex = 0; frameIndex < swapchainImages.size(); frameIndex++)
+        typedef decltype(destroyFn) destroyFnType;
+        struct Holder final
         {
-            swapchainImageViews.push_back(createImageView(swapchainImages[frameIndex],
-                                                          VK_IMAGE_VIEW_TYPE_2D,
-                                                          swapchainFormat,
-                                                          VK_IMAGE_ASPECT_COLOR_BIT,
-                                                          0,
-                                                          1,
-                                                          0,
-                                                          1));
-            frames.emplace_back(createFence(true));
-        }
+            DeviceSubobjectHolder<VkRenderPass, destroyFnType> subobject;
+            Holder(std::shared_ptr<const VkDevice> device, destroyFnType &&destroyFn)
+                : subobject(std::move(device), std::move(destroyFn))
+            {
+            }
+        };
+        VkRenderPassCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        const std::size_t attachmentCount = 1;
+        VkAttachmentDescription attachments[attachmentCount] = {};
+        const std::size_t swapChainImageAttachmentIndex = 0;
+        VkAttachmentDescription &swapChainImageDescription =
+            attachments[swapChainImageAttachmentIndex];
+        swapChainImageDescription.flags = 0;
+        swapChainImageDescription.format = swapChainImageFormat;
+        swapChainImageDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+        swapChainImageDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        swapChainImageDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        swapChainImageDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        swapChainImageDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        swapChainImageDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        swapChainImageDescription.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        createInfo.attachmentCount = attachmentCount;
+        createInfo.pAttachments = &attachments[0];
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.inputAttachmentCount = 0;
+        subpass.pInputAttachments = nullptr;
+        const std::size_t subpassColorAttachmentCount = 1;
+        VkAttachmentReference subpassColorAttachments[subpassColorAttachmentCount] = {};
+        VkAttachmentReference &swapChainImageReference = subpassColorAttachments[0];
+        swapChainImageReference.attachment = swapChainImageAttachmentIndex;
+        swapChainImageReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        subpass.colorAttachmentCount = subpassColorAttachmentCount;
+        subpass.pColorAttachments = &subpassColorAttachments[0];
+        subpass.pResolveAttachments = nullptr;
+        subpass.pDepthStencilAttachment = nullptr;
+        subpass.preserveAttachmentCount = 0;
+        subpass.pPreserveAttachments = nullptr;
+        createInfo.subpassCount = 1;
+        createInfo.pSubpasses = &subpass;
+        std::initializer_list<VkSubpassDependency> dependencies = {};
+        createInfo.dependencyCount = dependencies.size();
+        createInfo.pDependencies = dependencies.begin();
+        auto holder = std::make_shared<Holder>(device, std::move(destroyFn));
+        handleVulkanResult(
+            vkCreateRenderPass(*device, &createInfo, nullptr, &holder->subobject.subobject),
+            "vkCreateRenderPass");
+        holder->subobject.valid = true;
+        return std::shared_ptr<const VkRenderPass>(holder, &holder->subobject.subobject);
+    }
+    std::shared_ptr<const VkFramebuffer> createFramebuffer(
+        std::shared_ptr<const VkRenderPass> renderPass,
+        std::vector<std::shared_ptr<const VkImageView>> attachments,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t layers = 1)
+    {
+        const auto vkDestroyFramebuffer = this->vkDestroyFramebuffer;
+        auto destroyFn = [vkDestroyFramebuffer](const std::shared_ptr<const VkDevice> &device,
+                                                VkFramebuffer framebuffer)
+        {
+            vkDestroyFramebuffer(*device, framebuffer, nullptr);
+        };
+        typedef decltype(destroyFn) destroyFnType;
+        struct Holder final
+        {
+            std::shared_ptr<const VkRenderPass> renderPass;
+            std::vector<std::shared_ptr<const VkImageView>> attachments;
+            DeviceSubobjectHolder<VkFramebuffer, destroyFnType> subobject;
+            Holder(std::shared_ptr<const VkRenderPass> renderPass,
+                   std::vector<std::shared_ptr<const VkImageView>> attachments,
+                   std::shared_ptr<const VkDevice> device,
+                   destroyFnType &&destroyFn)
+                : renderPass(std::move(renderPass)),
+                  attachments(std::move(attachments)),
+                  subobject(std::move(device), std::move(destroyFn))
+            {
+            }
+        };
+        VkFramebufferCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        createInfo.renderPass = *renderPass;
+        std::vector<VkImageView> attachmentArray;
+        attachmentArray.reserve(attachments.size());
+        for(auto &i : attachments)
+            attachmentArray.push_back(*i);
+        createInfo.attachmentCount = attachmentArray.size();
+        createInfo.pAttachments = attachmentArray.data();
+        createInfo.width = width;
+        createInfo.height = height;
+        createInfo.layers = layers;
+        auto holder = std::make_shared<Holder>(
+            std::move(renderPass), std::move(attachments), device, std::move(destroyFn));
+        handleVulkanResult(
+            vkCreateFramebuffer(*device, &createInfo, nullptr, &holder->subobject.subobject),
+            "vkCreateFramebuffer");
+        holder->subobject.valid = true;
+        return std::shared_ptr<const VkFramebuffer>(holder, &holder->subobject.subobject);
+    }
+    std::shared_ptr<const VkDeviceMemory> allocateDeviceMemory(VkDeviceSize allocationSize,
+                                                               std::uint32_t memoryTypeIndex)
+    {
+        const auto vkFreeMemory = this->vkFreeMemory;
+        auto destroyFn = [vkFreeMemory](const std::shared_ptr<const VkDevice> &device,
+                                        VkDeviceMemory deviceMemory)
+        {
+            vkFreeMemory(*device, deviceMemory, nullptr);
+        };
+        auto holder = std::make_shared<DeviceSubobjectHolder<VkDeviceMemory, decltype(destroyFn)>>(
+            device, std::move(destroyFn));
+        VkMemoryAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.allocationSize = allocationSize;
+        allocateInfo.memoryTypeIndex = memoryTypeIndex;
+        handleVulkanResult(vkAllocateMemory(*device, &allocateInfo, nullptr, &holder->subobject),
+                           "vkAllocateMemory");
+        holder->valid = true;
+        return std::shared_ptr<const VkDeviceMemory>(holder, &holder->subobject);
+    }
+    std::shared_ptr<void *const> mapDeviceMemory(std::shared_ptr<const VkDeviceMemory> deviceMemory)
+    {
+        struct Holder final
+        {
+            Holder(const Holder &) = delete;
+            Holder &operator=(const Holder &) = delete;
+            std::shared_ptr<const VkDeviceMemory> deviceMemory;
+            std::shared_ptr<const VkDevice> device;
+            void *mappedMemory;
+            PFN_vkUnmapMemory vkUnmapMemory;
+            explicit Holder(std::shared_ptr<const VkDeviceMemory> deviceMemory,
+                            std::shared_ptr<const VkDevice> device,
+                            PFN_vkMapMemory vkMapMemory,
+                            PFN_vkUnmapMemory vkUnmapMemory)
+                : deviceMemory(std::move(deviceMemory)),
+                  device(std::move(device)),
+                  mappedMemory(nullptr),
+                  vkUnmapMemory(vkUnmapMemory)
+            {
+                handleVulkanResult(
+                    vkMapMemory(
+                        *this->device, *this->deviceMemory, 0, VK_WHOLE_SIZE, 0, &mappedMemory),
+                    "vkMapMemory");
+            }
+            ~Holder()
+            {
+                vkUnmapMemory(*device, *deviceMemory);
+            }
+        };
+        auto holder =
+            std::make_shared<Holder>(std::move(deviceMemory), device, vkMapMemory, vkUnmapMemory);
+        return std::shared_ptr<void *const>(holder, &holder->mappedMemory);
+    }
+    std::shared_ptr<const VkBuffer> createBufferAndAllocateMemory(VkDeviceSize bufferSize,
+                                                                  VkBufferUsageFlags usage)
+    {
+#error finish
+        const auto vkDestroyBuffer = this->vkDestroyBuffer;
+        auto destroyFn =
+            [vkDestroyBuffer](const std::shared_ptr<const VkDevice> &device, VkBuffer buffer)
+        {
+            vkDestroyBuffer(*device, buffer, nullptr);
+        };
+        typedef decltype(destroyFn) destroyFnType;
+        struct Holder final
+        {
+            std::shared_ptr<const VkDeviceMemory> deviceMemory;
+            DeviceSubobjectHolder<VkBuffer, destroyFnType> subobject;
+            Holder(std::shared_ptr<const VkDeviceMemory> deviceMemory,
+                   std::shared_ptr<const VkDevice> device,
+                   destroyFnType &&destroyFn)
+                : deviceMemory(std::move(deviceMemory)),
+                  subobject(std::move(device), std::move(destroyFn))
+            {
+            }
+        };
+        auto holder =
+            std::make_shared<Holder>(std::move(deviceMemory), device, std::move(destroyFn));
+        VkBufferCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        createInfo.size = bufferSize;
+        createInfo.usage = usage;
+        createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // only on one queue
+        handleVulkanResult(
+            vkCreateBuffer(*device, &createInfo, nullptr, &holder->subobject.subobject),
+            "vkCreateBuffer");
+        holder->subobject.valid = true;
+        handleVulkanResult(
+            vkBindBufferMemory(
+                *device, holder->subobject.subobject, *holder->deviceMemory, memoryOffset),
+            "vkBindBufferMemory");
+        return std::shared_ptr<const VkBuffer>(holder, &holder->subobject.subobject);
     }
     void createNewSwapchain() // destroys old swapchain
     {
@@ -1297,6 +1552,7 @@ public:
         std::shared_ptr<const VkSwapchainKHR> oldSwapchain = std::move(swapchain);
         swapchain = nullptr;
         renderPipeline = nullptr;
+        renderPass = nullptr;
         swapchainImages.clear();
         swapchainImageViews.clear();
         VkSurfaceCapabilitiesKHR surfaceCapabilities;
@@ -1377,7 +1633,7 @@ public:
             if(surfaceFormat.format == VK_FORMAT_UNDEFINED)
                 surfaceFormat = surfaceFormats[0];
         }
-        VkExtent2D swapchainExtent = surfaceCapabilities.currentExtent;
+        swapchainExtent = surfaceCapabilities.currentExtent;
         if(swapchainExtent.width == static_cast<std::uint32_t>(-1)) // special extent
         {
             int w, h;
@@ -1424,18 +1680,50 @@ public:
         swapchain = std::shared_ptr<const VkSwapchainKHR>(holder, &holder->subobject);
         try
         {
-            getSwapchainImagesAndCreateFrameObjects(surfaceFormat.format);
-#if 1
-#warning finish creating pipeline
-#else
-            renderPipeline =
-                createPipeline(vertexShaderModule, fragmentShaderModule, true, false, createPipelineLayout({}), );
-#endif
+            struct SwapchainImagesHolder final
+            {
+                std::shared_ptr<const VkSwapchainKHR> swapchain;
+                std::vector<VkImage> images;
+            };
+            auto holder = std::make_shared<SwapchainImagesHolder>();
+            holder->swapchain = swapchain;
+            std::uint32_t swapchainImageCount = 0;
+            handleVulkanResult(
+                vkGetSwapchainImagesKHR(*device, *swapchain, &swapchainImageCount, nullptr),
+                "vkGetSwapchainImagesKHR");
+            holder->images.resize(swapchainImageCount);
+            swapchainImages.clear();
+            swapchainImageViews.clear();
+            handleVulkanResult(
+                vkGetSwapchainImagesKHR(
+                    *device, *swapchain, &swapchainImageCount, holder->images.data()),
+                "vkGetSwapchainImagesKHR");
+            for(auto &image : holder->images)
+                swapchainImages.push_back(std::shared_ptr<const VkImage>(holder, &image));
+
+            for(std::uint32_t frameIndex = 0; frameIndex < swapchainImages.size(); frameIndex++)
+            {
+                swapchainImageViews.push_back(createImageView(swapchainImages[frameIndex],
+                                                              VK_IMAGE_VIEW_TYPE_2D,
+                                                              surfaceFormat.format,
+                                                              VK_IMAGE_ASPECT_COLOR_BIT,
+                                                              0,
+                                                              1,
+                                                              0,
+                                                              1));
+            }
+            renderPass = createRenderPass(surfaceFormat.format);
+            renderPipeline = createPipeline(vertexShaderModule,
+                                            fragmentShaderModule,
+                                            true,
+                                            false,
+                                            createPipelineLayout({}),
+                                            renderPass,
+                                            0);
         }
         catch(...)
         {
             swapchain = nullptr;
-            renderPipeline = nullptr;
             throw;
         }
     }
@@ -1531,6 +1819,7 @@ public:
             if(VK_VERSION_MAJOR(physicalDeviceProperties.apiVersion) < 1)
                 continue;
             vkGetPhysicalDeviceFeatures(i, &physicalDeviceFeatures);
+            vkGetPhysicalDeviceMemoryProperties(i, &physicalDeviceMemoryProperties);
             std::uint32_t queueFamiliesCount = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(i, &queueFamiliesCount, nullptr);
             if(queueFamiliesCount == 0)
@@ -1646,6 +1935,7 @@ public:
         swapchainImageViews.clear();
         swapchain = nullptr;
         renderPipeline = nullptr;
+        renderPass = nullptr;
         imageAvailableSemaphore = nullptr;
         renderingFinishedSemaphore = nullptr;
         vertexShaderModule = nullptr;
@@ -1747,10 +2037,21 @@ public:
             return;
         }
         handleVulkanResult(acquireNextImageResult, "vkAcquireNextImageKHR");
-        FrameObjects &frame = frames[imageIndex];
+        if(frames.size() >= 1)
+        {
+            FrameObjects frame = std::move(frames.front());
+            frames.pop_front();
+            frames.push_back(std::move(frame));
+        }
+        else
+        {
+            frames.emplace_back(createFence(true));
+        }
+        FrameObjects &frame = frames.back();
         handleVulkanResult(
             vkWaitForFences(*device, 1, &*frame.fence, VK_TRUE, static_cast<std::uint64_t>(-1)),
             "vkWaitForFences");
+        frame.objects.clear();
         handleVulkanResult(vkResetFences(*device, 1, &*frame.fence), "vkResetFences");
         auto commandBuffer =
             allocateCommandBuffer(createCommandPool(true, false, graphicsQueueFamilyIndex),
@@ -1761,72 +2062,45 @@ public:
         handleVulkanResult(vkBeginCommandBuffer(*commandBuffer, &commandBufferBeginInfo),
                            "vkBeginCommandBuffer");
 #warning finish
-        VkImageMemoryBarrier imageMemoryBarrierBeforeClear{};
-        imageMemoryBarrierBeforeClear.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        imageMemoryBarrierBeforeClear.srcAccessMask = 0;
-        imageMemoryBarrierBeforeClear.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        imageMemoryBarrierBeforeClear.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageMemoryBarrierBeforeClear.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        imageMemoryBarrierBeforeClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        imageMemoryBarrierBeforeClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        imageMemoryBarrierBeforeClear.image = *swapchainImages[imageIndex];
-        imageMemoryBarrierBeforeClear.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        imageMemoryBarrierBeforeClear.subresourceRange.baseMipLevel = 0;
-        imageMemoryBarrierBeforeClear.subresourceRange.levelCount = 1;
-        imageMemoryBarrierBeforeClear.subresourceRange.baseArrayLayer = 0;
-        imageMemoryBarrierBeforeClear.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(*commandBuffer,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             0,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr,
-                             1,
-                             &imageMemoryBarrierBeforeClear);
-        VkClearColorValue clearColor{};
-        clearColor.float32[0] = commandBufferIn.clearColor.red;
-        clearColor.float32[1] = commandBufferIn.clearColor.green;
-        clearColor.float32[2] = commandBufferIn.clearColor.blue;
-        clearColor.float32[3] = commandBufferIn.clearColor.opacity;
-        VkImageSubresourceRange clearImageSubresourceRange{};
-        clearImageSubresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        clearImageSubresourceRange.baseMipLevel = 0;
-        clearImageSubresourceRange.levelCount = 1;
-        clearImageSubresourceRange.baseArrayLayer = 0;
-        clearImageSubresourceRange.layerCount = 1;
-        vkCmdClearColorImage(*commandBuffer,
-                             *swapchainImages[imageIndex],
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                             &clearColor,
-                             1,
-                             &clearImageSubresourceRange);
-        VkImageMemoryBarrier imageMemoryBarrierBetweenClearAndPresent{};
-        imageMemoryBarrierBetweenClearAndPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        imageMemoryBarrierBetweenClearAndPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        imageMemoryBarrierBetweenClearAndPresent.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-        imageMemoryBarrierBetweenClearAndPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        imageMemoryBarrierBetweenClearAndPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        imageMemoryBarrierBetweenClearAndPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        imageMemoryBarrierBetweenClearAndPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        imageMemoryBarrierBetweenClearAndPresent.image = *swapchainImages[imageIndex];
-        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.aspectMask =
-            VK_IMAGE_ASPECT_COLOR_BIT;
-        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.baseMipLevel = 0;
-        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.levelCount = 1;
-        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.baseArrayLayer = 0;
-        imageMemoryBarrierBetweenClearAndPresent.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(*commandBuffer,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                             0,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr,
-                             1,
-                             &imageMemoryBarrierBetweenClearAndPresent);
+        VkViewport viewport;
+        viewport.x = 0;
+        viewport.y = 0;
+        viewport.width = swapchainExtent.width;
+        viewport.height = swapchainExtent.height;
+        viewport.minDepth = 0;
+        viewport.maxDepth = 1;
+        vkCmdSetViewport(*commandBuffer, 0, 1, &viewport);
+        VkRenderPassBeginInfo renderPassBeginInfo{};
+        renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassBeginInfo.renderPass = *renderPass;
+        frame.objects.push_back(renderPass);
+        auto framebuffer = createFramebuffer(renderPass,
+                                             {swapchainImageViews[imageIndex]},
+                                             swapchainExtent.width,
+                                             swapchainExtent.height);
+        renderPassBeginInfo.framebuffer = *framebuffer;
+        frame.objects.push_back(framebuffer);
+        renderPassBeginInfo.renderArea.offset.x = 0;
+        renderPassBeginInfo.renderArea.offset.y = 0;
+        renderPassBeginInfo.renderArea.extent = swapchainExtent;
+        const std::size_t clearValueCount = 1;
+        VkClearValue clearValues[clearValueCount];
+        clearValues[0].color.float32[0] = commandBufferIn.clearColor.red;
+        clearValues[0].color.float32[1] = commandBufferIn.clearColor.green;
+        clearValues[0].color.float32[2] = commandBufferIn.clearColor.blue;
+        clearValues[0].color.float32[3] = commandBufferIn.clearColor.opacity;
+        renderPassBeginInfo.clearValueCount = clearValueCount;
+        renderPassBeginInfo.pClearValues = &clearValues[0];
+        vkCmdSetScissor(*commandBuffer, 0, 1, &renderPassBeginInfo.renderArea);
+        vkCmdBeginRenderPass(*commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *renderPipeline);
+        frame.objects.push_back(renderPipeline);
+        VkBuffer vertexBufferHandle = ;
+        VkDeviceSize vertexBufferOffset = 0;
+        vkCmdBindVertexBuffers(*commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
+        std::uint32_t vertexCount = ;
+        vkCmdDraw(*commandBuffer, vertexCount, 1, 0, 0);
+        vkCmdEndRenderPass(*commandBuffer);
         handleVulkanResult(vkEndCommandBuffer(*commandBuffer), "vkEndCommandBuffer");
         const VkPipelineStageFlags waitDestinationStageFlags = VK_PIPELINE_STAGE_TRANSFER_BIT;
         VkSubmitInfo submitInfo{};
@@ -1921,3 +2195,4 @@ void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
 }
 }
 }
+#endif
