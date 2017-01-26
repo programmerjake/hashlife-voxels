@@ -1729,22 +1729,22 @@ public:
         handleVulkanResult(vkGetPhysicalDeviceSurfacePresentModesKHR(
                                *physicalDevice, *surface, &presentModesCount, presentModes.data()),
                            "vkGetPhysicalDeviceSurfacePresentModesKHR");
-        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        VkPresentModeKHR selectedPresentMode = VK_PRESENT_MODE_FIFO_KHR;
         std::string presentModeStr = "fifo";
         for(auto presentMode : presentModes)
         {
             switch(presentMode)
             {
             case VK_PRESENT_MODE_IMMEDIATE_KHR:
-                if(presentMode != VK_PRESENT_MODE_MAILBOX_KHR)
+                if(selectedPresentMode != VK_PRESENT_MODE_MAILBOX_KHR)
                 {
                     presentModeStr = "immediate";
-                    presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+                    selectedPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
                 }
                 break;
             case VK_PRESENT_MODE_MAILBOX_KHR:
                 presentModeStr = "mailbox";
-                presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+                selectedPresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
                 break;
             case VK_PRESENT_MODE_FIFO_KHR:
                 break;
@@ -1815,7 +1815,7 @@ public:
         swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         swapchainCreateInfo.preTransform = surfaceTransform;
         swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        swapchainCreateInfo.presentMode = presentMode;
+        swapchainCreateInfo.presentMode = selectedPresentMode;
         swapchainCreateInfo.clipped = VK_TRUE;
         swapchainCreateInfo.oldSwapchain =
             oldSwapchain ? *oldSwapchain : static_cast<VkSwapchainKHR>(VK_NULL_HANDLE);
@@ -2192,7 +2192,7 @@ public:
             return;
         }
         handleVulkanResult(acquireNextImageResult, "vkAcquireNextImageKHR");
-        if(frames.size() >= 1)
+        if(frames.size() >= 6)
         {
             FrameObjects frame = std::move(frames.front());
             frames.pop_front();
