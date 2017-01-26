@@ -19,12 +19,13 @@
  *
  */
 #include "vulkan_driver.h"
-#if 1
+#if 0
 #warning finish VulkanDriver
 #else
 #include "../../logging/logging.h"
 #include <cassert>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <stdexcept>
 #include <cstddef>
@@ -34,6 +35,9 @@
 #include <utility>
 #include <mutex>
 #include <deque>
+#include <tuple>
+#include <chrono>
+#include <cmath>
 #include <type_traits>
 #include "SDL_syswm.h"
 #if defined(__ANDROID__)
@@ -79,68 +83,234 @@ public:
             const std::shared_ptr<const VkInstance> &instance,
             const SDL_SysWMinfo &wmInfo) const = 0;
     };
-    struct DeviceMemoryAllocation final
-    {
-        std::shared_ptr<const VkDeviceMemory> deviceMemory;
-        VkDeviceSize start;
-        DeviceMemoryAllocation(std::shared_ptr<const VkDeviceMemory> deviceMemory,
-                               VkDeviceSize start)
-            : deviceMemory(std::move(deviceMemory)), start(start)
-        {
-        }
-        DeviceMemoryAllocation() : deviceMemory(), start()
-        {
-        }
-    };
-    class DeviceMemoryAllocator final
-    {
-        DeviceMemoryAllocator(const DeviceMemoryAllocator &) = delete;
-        DeviceMemoryAllocator &operator=(const DeviceMemoryAllocator &) = delete;
-
-    private:
-        static constexpr VkDeviceSize chunkSize = static_cast<VkDeviceSize>(1) << 20; // 1MB
-        static constexpr VkDeviceSize bigAllocationMinimumSize = static_cast<VkDeviceSize>(1)
-                                                                 << 18; // 256kB
-        std::shared_ptr<const VkDevice> device;
-        std::mutex lock;
-        struct Subchunk final
-        {
-            VkDeviceSize startOffset;
-            VkDeviceSize size;
-        };
-        struct SubchunkStartOffsetLess final
-        {
-            bool operator()(const Subchunk &a, const Subchunk &b) const noexcept
-            {
-                return a.startOffset < b.startOffset;
-            }
-        };
-        struct SubchunkSizeLess final
-        {
-            bool operator()(const Subchunk &a, const Subchunk &b) const noexcept
-            {
-                return a.size < b.size;
-            }
-        };
-        struct Chunk final
-        {
-            std::shared_ptr<const VkDeviceMemory> deviceMemory;
-        };
-        std::vector<Chunk> chunks;
-#error finish
-    };
     class Buffer final
     {
         Buffer(const Buffer &) = delete;
         Buffer &operator=(const Buffer &) = delete;
 
     private:
-        std::shared_ptr<const VkDevice> device;
-        std::shared_ptr<const VkDeviceMemory> deviceMemory;
-        PFN_vkDestroyBuffer vkDestroyBuffer;
-        PFN_vkMapMemory vkMapMemory;
-        PFN_vkUnmapMemory vkUnmapMemory;
-#error finish
+        struct MappedBuffer final
+        {
+            MappedBuffer(const MappedBuffer &) = delete;
+            MappedBuffer &operator=(const MappedBuffer &) = delete;
+            std::shared_ptr<Buffer> buffer;
+            void *memory;
+            explicit MappedBuffer(std::shared_ptr<Buffer> buffer)
+                : buffer(std::move(buffer)), memory(nullptr)
+            {
+            }
+            void init(std::unique_lock<std::mutex> &lockIt)
+            {
+                try
+                {
+                    handleVulkanResult(
+                        buffer->vkMapMemory(
+                            *buffer->device, buffer->deviceMemory, 0, VK_WHOLE_SIZE, 0, &memory),
+                        "vkMapMemory");
+                }
+                catch(...)
+                {
+                    memory = nullptr;
+                    throw;
+                }
+            }
+            ~MappedBuffer()
+            {
+                if(memory) // if map succeded
+                {
+                    std::unique_lock<std::mutex> lockIt(buffer->mapMutex);
+                    buffer->vkUnmapMemory(*buffer->device, buffer->deviceMemory);
+                }
+            }
+        };
+        struct PrivateAccess final
+        {
+            friend class Buffer;
+
+        private:
+            PrivateAccess() = default;
+        };
+
+    private:
+        const std::shared_ptr<const VkDevice> device;
+        std::weak_ptr<Buffer> sharedThis;
+        VkDeviceMemory deviceMemory;
+        VkBuffer buffer;
+        const PFN_vkDestroyBuffer vkDestroyBuffer;
+        const PFN_vkFreeMemory vkFreeMemory;
+        const PFN_vkMapMemory vkMapMemory;
+        const PFN_vkUnmapMemory vkUnmapMemory;
+        std::mutex mapMutex;
+        std::weak_ptr<void *const> mappedMemory;
+        const std::size_t bufferSize;
+
+    private:
+        void allocateBuffer(VkBufferUsageFlags usage,
+                            const VkPhysicalDeviceMemoryProperties &physicalDeviceMemoryProperties,
+                            PFN_vkCreateBuffer vkCreateBuffer,
+                            PFN_vkAllocateMemory vkAllocateMemory,
+                            PFN_vkGetBufferMemoryRequirements vkGetBufferMemoryRequirements,
+                            PFN_vkBindBufferMemory vkBindBufferMemory)
+        {
+            assert(bufferSize);
+            VkBufferCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            createInfo.size = bufferSize;
+            createInfo.usage = usage;
+            createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // only one queue
+            createInfo.queueFamilyIndexCount = 0;
+            createInfo.pQueueFamilyIndices = nullptr;
+            handleVulkanResult(vkCreateBuffer(*device, &createInfo, nullptr, &buffer),
+                               "vkCreateBuffer");
+            try
+            {
+                VkMemoryRequirements memoryRequirements;
+                vkGetBufferMemoryRequirements(*device, buffer, &memoryRequirements);
+                std::uint32_t memoryTypeIndex = 0;
+                bool foundMemoryType = false;
+                for(VkMemoryPropertyFlags requiredProperties :
+                    std::initializer_list<VkMemoryPropertyFlags>{
+                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                            | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+                            | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+                            | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    })
+                {
+                    auto findResult = findMemoryType(memoryRequirements.memoryTypeBits,
+                                                     requiredProperties,
+                                                     physicalDeviceMemoryProperties);
+                    if(std::get<1>(findResult))
+                    {
+                        foundMemoryType = true;
+                        memoryTypeIndex = std::get<0>(findResult);
+                        break;
+                    }
+                }
+                if(!foundMemoryType)
+                {
+                    std::string message = "host-visible memory type not found for buffer";
+                    logging::log(logging::Level::Fatal, "VulkanDriver", message);
+                    throw std::runtime_error("VulkanDriver: " + std::move(message));
+                }
+                VkMemoryAllocateInfo allocateInfo{};
+                allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+                allocateInfo.allocationSize = memoryRequirements.size;
+                allocateInfo.memoryTypeIndex = memoryTypeIndex;
+                handleVulkanResult(vkAllocateMemory(*device, &allocateInfo, nullptr, &deviceMemory),
+                                   "vkAllocateMemory");
+                handleVulkanResult(vkBindBufferMemory(*device, buffer, deviceMemory, 0),
+                                   "vkBindBufferMemory");
+            }
+            catch(...)
+            {
+                vkDestroyBuffer(*device, buffer, nullptr);
+                throw;
+            }
+        }
+
+    public:
+        Buffer(std::shared_ptr<const VkDevice> device,
+               std::size_t bufferSize,
+               VkBufferUsageFlags usage,
+               const VkPhysicalDeviceMemoryProperties &physicalDeviceMemoryProperties,
+               PFN_vkCreateBuffer vkCreateBuffer,
+               PFN_vkDestroyBuffer vkDestroyBuffer,
+               PFN_vkAllocateMemory vkAllocateMemory,
+               PFN_vkFreeMemory vkFreeMemory,
+               PFN_vkMapMemory vkMapMemory,
+               PFN_vkUnmapMemory vkUnmapMemory,
+               PFN_vkGetBufferMemoryRequirements vkGetBufferMemoryRequirements,
+               PFN_vkBindBufferMemory vkBindBufferMemory,
+               PrivateAccess)
+            : device(std::move(device)),
+              sharedThis(),
+              deviceMemory(VK_NULL_HANDLE),
+              buffer(VK_NULL_HANDLE),
+              vkDestroyBuffer(vkDestroyBuffer),
+              vkFreeMemory(vkFreeMemory),
+              vkMapMemory(vkMapMemory),
+              vkUnmapMemory(vkUnmapMemory),
+              mappedMemory(),
+              bufferSize(bufferSize)
+        {
+            allocateBuffer(usage,
+                           physicalDeviceMemoryProperties,
+                           vkCreateBuffer,
+                           vkAllocateMemory,
+                           vkGetBufferMemoryRequirements,
+                           vkBindBufferMemory);
+        }
+        static std::shared_ptr<Buffer> make(
+            std::shared_ptr<const VkDevice> device,
+            std::size_t bufferSize,
+            VkBufferUsageFlags usage,
+            const VkPhysicalDeviceMemoryProperties &physicalDeviceMemoryProperties,
+            PFN_vkCreateBuffer vkCreateBuffer,
+            PFN_vkDestroyBuffer vkDestroyBuffer,
+            PFN_vkAllocateMemory vkAllocateMemory,
+            PFN_vkFreeMemory vkFreeMemory,
+            PFN_vkMapMemory vkMapMemory,
+            PFN_vkUnmapMemory vkUnmapMemory,
+            PFN_vkGetBufferMemoryRequirements vkGetBufferMemoryRequirements,
+            PFN_vkBindBufferMemory vkBindBufferMemory)
+        {
+            auto retval = std::make_shared<Buffer>(std::move(device),
+                                                   bufferSize,
+                                                   usage,
+                                                   physicalDeviceMemoryProperties,
+                                                   vkCreateBuffer,
+                                                   vkDestroyBuffer,
+                                                   vkAllocateMemory,
+                                                   vkFreeMemory,
+                                                   vkMapMemory,
+                                                   vkUnmapMemory,
+                                                   vkGetBufferMemoryRequirements,
+                                                   vkBindBufferMemory,
+                                                   PrivateAccess());
+            retval->sharedThis = retval;
+            return retval;
+        }
+        ~Buffer()
+        {
+            assert(mappedMemory.expired());
+            vkDestroyBuffer(*device, buffer, nullptr);
+            vkFreeMemory(*device, deviceMemory, nullptr);
+        }
+        std::size_t size() const noexcept
+        {
+            return bufferSize;
+        }
+        std::shared_ptr<void *const> mapMemory()
+        {
+            std::unique_lock<std::mutex> lockIt(mapMutex);
+            auto retval = mappedMemory.lock();
+            if(retval)
+                return retval;
+            auto mappedBuffer = std::make_shared<MappedBuffer>(sharedThis.lock());
+            mappedBuffer->init(lockIt);
+            retval = std::shared_ptr<void *const>(mappedBuffer, &mappedBuffer->memory);
+            mappedMemory = retval;
+            return retval;
+        }
+        std::shared_ptr<const VkBuffer> getBuffer() const noexcept
+        {
+            return std::shared_ptr<const VkBuffer>(sharedThis.lock(), &buffer);
+        }
+    };
+    struct SubBuffer final
+    {
+        std::shared_ptr<Buffer> buffer;
+        std::size_t offset;
+        std::size_t size;
+        SubBuffer() : buffer(), offset(), size()
+        {
+        }
+        SubBuffer(std::shared_ptr<Buffer> buffer, std::size_t offset, std::size_t size)
+            : buffer(std::move(buffer)), offset(offset), size(size)
+        {
+        }
     };
     struct InstanceHolder final
     {
@@ -695,6 +865,7 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkEndCommandBuffer)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkFreeCommandBuffers)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkFreeMemory)                                \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetBufferMemoryRequirements)               \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetDeviceQueue)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetFenceStatus)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)                     \
@@ -962,6 +1133,24 @@ public:
     };
 
 public:
+    static std::pair<std::uint32_t, bool> findMemoryType(
+        std::uint32_t memoryTypeBits,
+        VkMemoryPropertyFlags requiredProperties,
+        const VkPhysicalDeviceMemoryProperties &physicalDeviceMemoryProperties) noexcept
+    {
+        for(std::uint32_t i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; i++)
+            if(memoryTypeBits & (static_cast<std::uint32_t>(1) << i))
+                if((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags
+                    & requiredProperties) == requiredProperties)
+                    return {i, true};
+        return {0, false};
+    }
+    std::pair<std::uint32_t, bool> findMemoryType(std::uint32_t memoryTypeBits,
+                                                  VkMemoryPropertyFlags requiredProperties) const
+        noexcept
+    {
+        return findMemoryType(memoryTypeBits, requiredProperties, physicalDeviceMemoryProperties);
+    }
     std::shared_ptr<const VkQueue> getQueue(std::shared_ptr<const VkDevice> device,
                                             std::uint32_t queueFamilyIndex,
                                             std::uint32_t queueIndex)
@@ -1505,46 +1694,6 @@ public:
             std::make_shared<Holder>(std::move(deviceMemory), device, vkMapMemory, vkUnmapMemory);
         return std::shared_ptr<void *const>(holder, &holder->mappedMemory);
     }
-    std::shared_ptr<const VkBuffer> createBufferAndAllocateMemory(VkDeviceSize bufferSize,
-                                                                  VkBufferUsageFlags usage)
-    {
-#error finish
-        const auto vkDestroyBuffer = this->vkDestroyBuffer;
-        auto destroyFn =
-            [vkDestroyBuffer](const std::shared_ptr<const VkDevice> &device, VkBuffer buffer)
-        {
-            vkDestroyBuffer(*device, buffer, nullptr);
-        };
-        typedef decltype(destroyFn) destroyFnType;
-        struct Holder final
-        {
-            std::shared_ptr<const VkDeviceMemory> deviceMemory;
-            DeviceSubobjectHolder<VkBuffer, destroyFnType> subobject;
-            Holder(std::shared_ptr<const VkDeviceMemory> deviceMemory,
-                   std::shared_ptr<const VkDevice> device,
-                   destroyFnType &&destroyFn)
-                : deviceMemory(std::move(deviceMemory)),
-                  subobject(std::move(device), std::move(destroyFn))
-            {
-            }
-        };
-        auto holder =
-            std::make_shared<Holder>(std::move(deviceMemory), device, std::move(destroyFn));
-        VkBufferCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        createInfo.size = bufferSize;
-        createInfo.usage = usage;
-        createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // only on one queue
-        handleVulkanResult(
-            vkCreateBuffer(*device, &createInfo, nullptr, &holder->subobject.subobject),
-            "vkCreateBuffer");
-        holder->subobject.valid = true;
-        handleVulkanResult(
-            vkBindBufferMemory(
-                *device, holder->subobject.subobject, *holder->deviceMemory, memoryOffset),
-            "vkBindBufferMemory");
-        return std::shared_ptr<const VkBuffer>(holder, &holder->subobject.subobject);
-    }
     void createNewSwapchain() // destroys old swapchain
     {
         handleVulkanResult(vkDeviceWaitIdle(*device), "vkDeviceWaitIdle");
@@ -1643,6 +1792,12 @@ public:
         }
         if(swapchainExtent.width == 0 || swapchainExtent.height == 0)
             return;
+        {
+            std::ostringstream ss;
+            ss << "swapchainExtent = <" << swapchainExtent.width << ", " << swapchainExtent.height
+               << ">";
+            logging::log(logging::Level::Info, "VulkanDriver", ss.str());
+        }
         VkImageUsageFlags imageUsageFlags =
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if((surfaceCapabilities.supportedUsageFlags & imageUsageFlags) != imageUsageFlags)
@@ -2095,10 +2250,35 @@ public:
         vkCmdBeginRenderPass(*commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *renderPipeline);
         frame.objects.push_back(renderPipeline);
-        VkBuffer vertexBufferHandle = ;
-        VkDeviceSize vertexBufferOffset = 0;
+        const std::size_t vertexCount = 3;
+        VulkanVertex vertices[vertexCount] = {
+            VertexWithoutNormal(util::Vector3F(0, -0.5, 0.5), TextureCoordinates(), rgbF(1, 0, 0)),
+            VertexWithoutNormal(util::Vector3F(0.5, 0.5, 0.5), TextureCoordinates(), rgbF(0, 1, 0)),
+            VertexWithoutNormal(
+                util::Vector3F(-0.5, 0.5, 0.5), TextureCoordinates(), rgbF(0, 0, 1)),
+        };
+        SubBuffer subbuffer(Buffer::make(device,
+                                         sizeof(VulkanVertex) * vertexCount,
+                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                         physicalDeviceMemoryProperties,
+                                         vkCreateBuffer,
+                                         vkDestroyBuffer,
+                                         vkAllocateMemory,
+                                         vkFreeMemory,
+                                         vkMapMemory,
+                                         vkUnmapMemory,
+                                         vkGetBufferMemoryRequirements,
+                                         vkBindBufferMemory),
+                            0,
+                            sizeof(VulkanVertex) * vertexCount);
+        std::memcpy(static_cast<void *>(reinterpret_cast<char *>(*subbuffer.buffer->mapMemory())
+                                        + subbuffer.offset),
+                    static_cast<const void *>(&vertices[0]),
+                    sizeof(VulkanVertex) * vertexCount);
+        VkBuffer vertexBufferHandle = *subbuffer.buffer->getBuffer();
+        VkDeviceSize vertexBufferOffset = subbuffer.offset;
         vkCmdBindVertexBuffers(*commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
-        std::uint32_t vertexCount = ;
+        frame.objects.push_back(subbuffer.buffer);
         vkCmdDraw(*commandBuffer, vertexCount, 1, 0, 0);
         vkCmdEndRenderPass(*commandBuffer);
         handleVulkanResult(vkEndCommandBuffer(*commandBuffer), "vkEndCommandBuffer");
@@ -2129,6 +2309,13 @@ public:
             return;
         }
         handleVulkanResult(presentResult, "vkQueuePresentKHR");
+        auto currentWindowSize = vulkanDriver->getOutputSize();
+        if(swapchainExtent.width != std::get<0>(currentWindowSize)
+           || swapchainExtent.height != std::get<1>(currentWindowSize))
+        {
+            createNewSwapchain();
+            return;
+        }
     }
 };
 
