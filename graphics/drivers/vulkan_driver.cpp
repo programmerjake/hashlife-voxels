@@ -38,6 +38,7 @@
 #include <tuple>
 #include <chrono>
 #include <cmath>
+#include "../../util/atomic_shared_ptr.h"
 #include <type_traits>
 #include "SDL_syswm.h"
 #if defined(__ANDROID__)
@@ -604,10 +605,12 @@ public:
             std::unique_ptr<VulkanTriangle[]> buffer;
             std::size_t bufferSize;
             std::size_t bufferUsed;
+            std::size_t finalBufferOffset;
             TriangleBuffer(std::size_t size = 0)
                 : buffer(size > 0 ? new VulkanTriangle[size] : nullptr),
                   bufferSize(size),
-                  bufferUsed(0)
+                  bufferUsed(0),
+                  finalBufferOffset()
             {
             }
             std::size_t allocateSpace(std::size_t triangleCount) noexcept
@@ -640,6 +643,9 @@ public:
         };
         util::EnumArray<TriangleBuffer, RenderLayer> triangleBuffers;
         bool finished;
+        std::shared_ptr<const VkDevice> device;
+        SubBuffer buffer;
+        std::shared_ptr<void *const> mappedBuffer;
 
     public:
         VulkanRenderBuffer(const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
@@ -649,6 +655,53 @@ public:
             {
                 triangleBuffers[renderLayer] = TriangleBuffer(maximumSizes[renderLayer]);
             }
+        }
+        void attachDevice(const std::shared_ptr<const VkDevice> &device,
+                          const std::shared_ptr<Implementation> &imp)
+        {
+            if(!device)
+                return;
+            if(this->device == device && buffer.buffer != nullptr)
+                return;
+            std::size_t bufferSize = 0;
+            for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                bufferSize += triangleBuffers[renderLayer].bufferSize * sizeof(VulkanTriangle);
+            }
+            if(bufferSize == 0)
+                return;
+            this->device = device;
+            mappedBuffer = nullptr;
+            buffer.buffer = nullptr;
+            buffer = SubBuffer(Buffer::make(device,
+                                            bufferSize,
+                                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                            imp->physicalDeviceMemoryProperties,
+                                            imp->vkCreateBuffer,
+                                            imp->vkDestroyBuffer,
+                                            imp->vkAllocateMemory,
+                                            imp->vkFreeMemory,
+                                            imp->vkMapMemory,
+                                            imp->vkUnmapMemory,
+                                            imp->vkGetBufferMemoryRequirements,
+                                            imp->vkBindBufferMemory),
+                               0,
+                               bufferSize);
+            mappedBuffer = buffer.buffer->mapMemory();
+            std::size_t bufferPartStartOffset = buffer.offset;
+            for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
+            {
+                triangleBuffers[renderLayer].finalBufferOffset = bufferPartStartOffset;
+                if(triangleBuffers[renderLayer].bufferUsed)
+                    std::memcpy(static_cast<char *>(*mappedBuffer)
+                                    + triangleBuffers[renderLayer].finalBufferOffset,
+                                triangleBuffers[renderLayer].buffer.get(),
+                                triangleBuffers[renderLayer].bufferUsed * sizeof(VulkanTriangle));
+                bufferPartStartOffset +=
+                    triangleBuffers[renderLayer].bufferSize * sizeof(VulkanTriangle);
+            }
+            if(finished)
+                mappedBuffer = nullptr;
         }
         bool isFinished() const noexcept
         {
@@ -669,7 +722,15 @@ public:
                                      std::size_t triangleCount) override
         {
             constexprAssert(!finished);
-            triangleBuffers[renderLayer].append(triangles, triangleCount);
+            auto &triangleBuffer = triangleBuffers[renderLayer];
+            std::size_t initialUsedCount = triangleBuffer.bufferUsed;
+            triangleBuffer.append(triangles, triangleCount);
+            if(!mappedBuffer)
+                return;
+            std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+                            + initialUsedCount * sizeof(VulkanTriangle),
+                        triangleBuffer.buffer.get() + initialUsedCount,
+                        triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
         }
         virtual void appendTriangles(RenderLayer renderLayer,
                                      const Triangle *triangles,
@@ -677,8 +738,16 @@ public:
                                      const Transform &tform) override
         {
             constexprAssert(!finished);
+            auto &triangleBuffer = triangleBuffers[renderLayer];
+            std::size_t initialUsedCount = triangleBuffer.bufferUsed;
             for(std::size_t i = 0; i < triangleCount; i++)
-                triangleBuffers[renderLayer].append(transform(tform, triangles[i]));
+                triangleBuffer.append(transform(tform, triangles[i]));
+            if(!mappedBuffer)
+                return;
+            std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+                            + initialUsedCount * sizeof(VulkanTriangle),
+                        triangleBuffer.buffer.get() + initialUsedCount,
+                        triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
         }
         virtual void appendBuffer(const ReadableRenderBuffer &buffer) override
         {
@@ -687,6 +756,7 @@ public:
             for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
+                std::size_t initialUsedCount = triangleBuffer.bufferUsed;
                 std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
                 if(!triangleCount)
                     continue;
@@ -700,6 +770,12 @@ public:
                                            tempBuffer.get()[i].texture.value));
                     triangleBuffer.buffer[i + location] = tempBuffer.get()[i];
                 }
+                if(!mappedBuffer)
+                    continue;
+                std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+                                + initialUsedCount * sizeof(VulkanTriangle),
+                            triangleBuffer.buffer.get() + initialUsedCount,
+                            triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
             }
         }
         virtual void appendBuffer(const ReadableRenderBuffer &buffer,
@@ -710,6 +786,7 @@ public:
             for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
+                std::size_t initialUsedCount = triangleBuffer.bufferUsed;
                 std::size_t triangleCount = buffer.getTriangleCount(renderLayer);
                 if(!triangleCount)
                     continue;
@@ -723,11 +800,18 @@ public:
                                            tempBuffer.get()[i].texture.value));
                     triangleBuffer.buffer[i + location] = transform(tform, tempBuffer.get()[i]);
                 }
+                if(!mappedBuffer)
+                    continue;
+                std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+                                + initialUsedCount * sizeof(VulkanTriangle),
+                            triangleBuffer.buffer.get() + initialUsedCount,
+                            triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
             }
         }
         virtual void finish() noexcept override
         {
             finished = true;
+            mappedBuffer = nullptr;
         }
     };
     struct VulkanCommandBuffer final : public CommandBuffer
@@ -795,6 +879,18 @@ public:
         {
         }
     };
+    struct AtomicDevice final
+    {
+        util::atomic_shared_ptr<const VkDevice> atomicDevice{};
+        void set(std::shared_ptr<const VkDevice> device) noexcept
+        {
+            atomicDevice.store(std::move(device), std::memory_order_release);
+        }
+        std::shared_ptr<const VkDevice> get() const noexcept
+        {
+            return atomicDevice.load(std::memory_order_acquire);
+        }
+    };
 
 public:
     VulkanDriver *const vulkanDriver;
@@ -809,17 +905,19 @@ public:
     std::uint32_t graphicsQueueFamilyIndex = 0;
     std::uint32_t presentQueueFamilyIndex = 0;
     std::shared_ptr<const VkPhysicalDevice> physicalDevice = nullptr;
-    std::shared_ptr<const VkDevice> device = nullptr;
+    AtomicDevice atomicDevice{};
     std::shared_ptr<const VkQueue> graphicsQueue = nullptr;
     std::shared_ptr<const VkQueue> presentQueue = nullptr;
     std::shared_ptr<const VkShaderModule> vertexShaderModule = nullptr;
     std::shared_ptr<const VkShaderModule> fragmentShaderModule = nullptr;
     std::shared_ptr<const VkSemaphore> imageAvailableSemaphore = nullptr;
     std::shared_ptr<const VkSemaphore> renderingFinishedSemaphore = nullptr;
+    std::shared_ptr<const VkPipelineCache> pipelineCache = nullptr;
     std::shared_ptr<const VkSwapchainKHR> swapchain = nullptr;
     std::vector<std::shared_ptr<const VkImage>> swapchainImages{};
     std::vector<std::shared_ptr<const VkImageView>> swapchainImageViews{};
     std::deque<FrameObjects> frames;
+    VkFormat renderPipelineFormat = VK_FORMAT_UNDEFINED;
     std::shared_ptr<const VkRenderPass> renderPass;
     std::shared_ptr<const VkPipeline> renderPipeline;
     VkExtent2D swapchainExtent{};
@@ -845,6 +943,7 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateFramebuffer)                         \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateGraphicsPipelines)                   \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateImageView)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCreatePipelineCache)                       \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreatePipelineLayout)                      \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateRenderPass)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateSemaphore)                           \
@@ -856,6 +955,7 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyFramebuffer)                        \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyImageView)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipeline)                           \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipelineCache)                      \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyPipelineLayout)                     \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroyRenderPass)                         \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkDestroySemaphore)                          \
@@ -868,6 +968,7 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetBufferMemoryRequirements)               \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetDeviceQueue)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetFenceStatus)                            \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkGetPipelineCacheData)                      \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)                     \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkMapMemory)                                 \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkQueuePresentKHR)                           \
@@ -936,11 +1037,6 @@ public:
         if(!fn)
             throw std::runtime_error(std::string("can't load vulkan function: ") + name);
     }
-    template <typename Fn>
-    void loadDeviceFunction(Fn &fn, const char *name) const
-    {
-        loadDeviceFunction(fn, *device, name);
-    }
     void loadGlobalFunctions()
     {
         assert(instance == nullptr);
@@ -963,12 +1059,12 @@ public:
 #undef VULKAN_DRIVER_INSTANCE_FUNCTION
 #undef VULKAN_DRIVER_DEVICE_FUNCTION
     }
-    void loadDeviceFunctions()
+    void loadDeviceFunctions(const std::shared_ptr<const VkDevice> &device)
     {
         assert(instance != nullptr);
 #define VULKAN_DRIVER_GLOBAL_FUNCTION(name)
 #define VULKAN_DRIVER_INSTANCE_FUNCTION(name)
-#define VULKAN_DRIVER_DEVICE_FUNCTION(name) loadDeviceFunction(name, #name);
+#define VULKAN_DRIVER_DEVICE_FUNCTION(name) loadDeviceFunction(name, *device, #name);
         VULKAN_DRIVER_FUNCTIONS()
 #undef VULKAN_DRIVER_GLOBAL_FUNCTION
 #undef VULKAN_DRIVER_INSTANCE_FUNCTION
@@ -1165,7 +1261,8 @@ public:
         deviceAndQueue->device = std::move(device);
         return std::shared_ptr<const VkQueue>(deviceAndQueue, &deviceAndQueue->queue);
     }
-    std::shared_ptr<const VkSemaphore> createSemaphore()
+    std::shared_ptr<const VkSemaphore> createSemaphore(
+        const std::shared_ptr<const VkDevice> &device)
     {
         const auto vkDestroySemaphore = this->vkDestroySemaphore;
         auto destroyFn = [vkDestroySemaphore](const std::shared_ptr<const VkDevice> &device,
@@ -1182,7 +1279,67 @@ public:
         holder->valid = true;
         return std::shared_ptr<const VkSemaphore>(holder, &holder->subobject);
     }
-    std::shared_ptr<const VkFence> createFence(bool signaled = false)
+    std::shared_ptr<const VkPipelineCache> createPipelineCache(
+        const std::shared_ptr<const VkDevice> &device,
+        const void *initialData,
+        std::size_t initialDataSize)
+    {
+        const auto vkDestroyPipelineCache = this->vkDestroyPipelineCache;
+        auto destroyFn = [vkDestroyPipelineCache](const std::shared_ptr<const VkDevice> &device,
+                                                  VkPipelineCache pipelineCache)
+        {
+            vkDestroyPipelineCache(*device, pipelineCache, nullptr);
+        };
+        auto holder = std::make_shared<DeviceSubobjectHolder<VkPipelineCache, decltype(destroyFn)>>(
+            device, std::move(destroyFn));
+        VkPipelineCacheCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        createInfo.initialDataSize = initialDataSize;
+        createInfo.pInitialData = initialData;
+        handleVulkanResult(vkCreatePipelineCache(*device, &createInfo, nullptr, &holder->subobject),
+                           "vkCreatePipelineCache");
+        holder->valid = true;
+        return std::shared_ptr<const VkPipelineCache>(holder, &holder->subobject);
+    }
+    std::shared_ptr<const VkPipelineCache> createPipelineCache(
+        const std::shared_ptr<const VkDevice> &device)
+    {
+        return createPipelineCache(device, nullptr, 0);
+    }
+    std::shared_ptr<const VkPipelineCache> createPipelineCache(
+        const std::shared_ptr<const VkDevice> &device,
+        const std::vector<unsigned char> &initialData)
+    {
+        return createPipelineCache(
+            device, static_cast<const void *>(initialData.data()), initialData.size());
+    }
+    std::shared_ptr<const VkPipelineCache> createPipelineCache(
+        const std::shared_ptr<const VkDevice> &device, const std::vector<char> &initialData)
+    {
+        return createPipelineCache(
+            device, static_cast<const void *>(initialData.data()), initialData.size());
+    }
+    std::vector<unsigned char> getPipelineCacheData(
+        const std::shared_ptr<const VkDevice> &device,
+        const std::shared_ptr<const VkPipelineCache> &pipelineCache,
+        std::vector<unsigned char> bufferIn = {})
+    {
+        std::size_t dataSize = 0;
+        handleVulkanResult(vkGetPipelineCacheData(*device, *pipelineCache, &dataSize, nullptr),
+                           "vkGetPipelineCacheData");
+        do
+        {
+            bufferIn.resize(dataSize);
+            // handle size changes due to different threads
+        } while(handleVulkanResult(
+                    vkGetPipelineCacheData(
+                        *device, *pipelineCache, &dataSize, static_cast<void *>(bufferIn.data())),
+                    "vkGetPipelineCacheData") == VK_INCOMPLETE);
+        bufferIn.resize(dataSize);
+        return bufferIn;
+    }
+    std::shared_ptr<const VkFence> createFence(const std::shared_ptr<const VkDevice> &device,
+                                               bool signaled = false)
     {
         const auto vkDestroyFence = this->vkDestroyFence;
         auto destroyFn =
@@ -1201,9 +1358,11 @@ public:
         holder->valid = true;
         return std::shared_ptr<const VkFence>(holder, &holder->subobject);
     }
-    std::shared_ptr<const VkCommandPool> createCommandPool(bool transient,
-                                                           bool resettable,
-                                                           std::uint32_t queueFamilyIndex)
+    std::shared_ptr<const VkCommandPool> createCommandPool(
+        const std::shared_ptr<const VkDevice> &device,
+        bool transient,
+        bool resettable,
+        std::uint32_t queueFamilyIndex)
     {
         const auto vkDestroyCommandPool = this->vkDestroyCommandPool;
         auto destroyFn = [vkDestroyCommandPool](const std::shared_ptr<const VkDevice> &device,
@@ -1226,7 +1385,9 @@ public:
         return std::shared_ptr<const VkCommandPool>(holder, &holder->subobject);
     }
     std::shared_ptr<const VkCommandBuffer> allocateCommandBuffer(
-        std::shared_ptr<const VkCommandPool> commandPool, VkCommandBufferLevel level)
+        const std::shared_ptr<const VkDevice> &device,
+        std::shared_ptr<const VkCommandPool> commandPool,
+        VkCommandBufferLevel level)
     {
         auto holder = std::make_shared<CommandBufferHolder>(device, std::move(commandPool));
         VkCommandBufferAllocateInfo allocateInfo{};
@@ -1239,14 +1400,16 @@ public:
         holder->vkFreeCommandBuffers = vkFreeCommandBuffers;
         return std::shared_ptr<const VkCommandBuffer>(holder, &holder->commandBuffer);
     }
-    std::shared_ptr<const VkImageView> createImageView(std::shared_ptr<const VkImage> image,
-                                                       VkImageViewType viewType,
-                                                       VkFormat format,
-                                                       VkImageAspectFlags aspectMask,
-                                                       std::uint32_t baseMipLevel,
-                                                       std::uint32_t levelCount,
-                                                       std::uint32_t baseArrayLayer,
-                                                       std::uint32_t layerCount)
+    std::shared_ptr<const VkImageView> createImageView(
+        const std::shared_ptr<const VkDevice> &device,
+        std::shared_ptr<const VkImage> image,
+        VkImageViewType viewType,
+        VkFormat format,
+        VkImageAspectFlags aspectMask,
+        std::uint32_t baseMipLevel,
+        std::uint32_t levelCount,
+        std::uint32_t baseArrayLayer,
+        std::uint32_t layerCount)
     {
         auto vkDestroyImageView = this->vkDestroyImageView;
         auto destroyFn = [vkDestroyImageView](const std::shared_ptr<const VkDevice> &device,
@@ -1287,8 +1450,10 @@ public:
         holder->subobject.valid = true;
         return std::shared_ptr<const VkImageView>(holder, &holder->subobject.subobject);
     }
-    std::shared_ptr<const VkShaderModule> createShaderModule(const void *code,
-                                                             std::size_t codeSizeInBytes)
+    std::shared_ptr<const VkShaderModule> createShaderModule(
+        const std::shared_ptr<const VkDevice> &device,
+        const void *code,
+        std::size_t codeSizeInBytes)
     {
         const auto vkDestroyShaderModule = this->vkDestroyShaderModule;
         auto destroyFn = [vkDestroyShaderModule](const std::shared_ptr<const VkDevice> &device,
@@ -1307,35 +1472,42 @@ public:
         holder->valid = true;
         return std::shared_ptr<const VkShaderModule>(holder, &holder->subobject);
     }
-    std::shared_ptr<const VkShaderModule> createShaderModule(const std::uint32_t *code,
-                                                             std::size_t codeSizeInWords)
+    std::shared_ptr<const VkShaderModule> createShaderModule(
+        const std::shared_ptr<const VkDevice> &device,
+        const std::uint32_t *code,
+        std::size_t codeSizeInWords)
     {
-        return createShaderModule(static_cast<const void *>(code),
-                                  codeSizeInWords * sizeof(std::uint32_t));
+        return createShaderModule(
+            device, static_cast<const void *>(code), codeSizeInWords * sizeof(std::uint32_t));
     }
     template <std::size_t N>
-    std::shared_ptr<const VkShaderModule> createShaderModule(const std::uint32_t(&code)[N])
+    std::shared_ptr<const VkShaderModule> createShaderModule(
+        const std::shared_ptr<const VkDevice> &device, const std::uint32_t(&code)[N])
     {
-        return createShaderModule(code, N);
-    }
-    std::shared_ptr<const VkShaderModule> createShaderModule(const std::vector<std::uint32_t> &code)
-    {
-        return createShaderModule(code.data(), code.size());
+        return createShaderModule(device, code, N);
     }
     std::shared_ptr<const VkShaderModule> createShaderModule(
+        const std::shared_ptr<const VkDevice> &device, const std::vector<std::uint32_t> &code)
+    {
+        return createShaderModule(device, code.data(), code.size());
+    }
+    std::shared_ptr<const VkShaderModule> createShaderModule(
+        const std::shared_ptr<const VkDevice> &device,
         const char *code,
         std::size_t codeSizeInBytes) // requires VK_NV_glsl_shader extension
     {
-        return createShaderModule(static_cast<const void *>(code), codeSizeInBytes);
+        return createShaderModule(device, static_cast<const void *>(code), codeSizeInBytes);
     }
     std::shared_ptr<const VkPipeline> createPipeline(
+        const std::shared_ptr<const VkDevice> &device,
         std::shared_ptr<const VkShaderModule> vertexShader,
         std::shared_ptr<const VkShaderModule> fragmentShader,
         bool depthWritingEnabled,
         bool earlyZTestEnabled,
         std::shared_ptr<const VkPipelineLayout> layout,
         std::shared_ptr<const VkRenderPass> renderPass,
-        std::uint32_t subpass)
+        std::uint32_t subpass,
+        const std::shared_ptr<const VkPipelineCache> &pipelineCache = nullptr)
     {
         auto vkDestroyPipeline = this->vkDestroyPipeline;
         auto destroyFn =
@@ -1483,13 +1655,18 @@ public:
                                                device,
                                                std::move(destroyFn));
         handleVulkanResult(
-            vkCreateGraphicsPipelines(
-                *device, VK_NULL_HANDLE, 1, &createInfo, nullptr, &holder->subobject.subobject),
+            vkCreateGraphicsPipelines(*device,
+                                      pipelineCache ? *pipelineCache : VK_NULL_HANDLE,
+                                      1,
+                                      &createInfo,
+                                      nullptr,
+                                      &holder->subobject.subobject),
             "vkCreateGraphicsPipelines");
         holder->subobject.valid = true;
         return std::shared_ptr<const VkPipeline>(holder, &holder->subobject.subobject);
     }
     std::shared_ptr<const VkPipelineLayout> createPipelineLayout(
+        const std::shared_ptr<const VkDevice> &device,
         std::vector<std::shared_ptr<const VkDescriptorSetLayout>> descriptorSetLayouts)
     {
         const auto vkDestroyPipelineLayout = this->vkDestroyPipelineLayout;
@@ -1530,7 +1707,8 @@ public:
         holder->subobject.valid = true;
         return std::shared_ptr<const VkPipelineLayout>(holder, &holder->subobject.subobject);
     }
-    std::shared_ptr<const VkRenderPass> createRenderPass(VkFormat swapChainImageFormat)
+    std::shared_ptr<const VkRenderPass> createRenderPass(
+        const std::shared_ptr<const VkDevice> &device, VkFormat swapChainImageFormat)
     {
         const auto vkDestroyRenderPass = this->vkDestroyRenderPass;
         auto destroyFn = [vkDestroyRenderPass](const std::shared_ptr<const VkDevice> &device,
@@ -1593,6 +1771,7 @@ public:
         return std::shared_ptr<const VkRenderPass>(holder, &holder->subobject.subobject);
     }
     std::shared_ptr<const VkFramebuffer> createFramebuffer(
+        const std::shared_ptr<const VkDevice> &device,
         std::shared_ptr<const VkRenderPass> renderPass,
         std::vector<std::shared_ptr<const VkImageView>> attachments,
         std::uint32_t width,
@@ -1641,8 +1820,10 @@ public:
         holder->subobject.valid = true;
         return std::shared_ptr<const VkFramebuffer>(holder, &holder->subobject.subobject);
     }
-    std::shared_ptr<const VkDeviceMemory> allocateDeviceMemory(VkDeviceSize allocationSize,
-                                                               std::uint32_t memoryTypeIndex)
+    std::shared_ptr<const VkDeviceMemory> allocateDeviceMemory(
+        const std::shared_ptr<const VkDevice> &device,
+        VkDeviceSize allocationSize,
+        std::uint32_t memoryTypeIndex)
     {
         const auto vkFreeMemory = this->vkFreeMemory;
         auto destroyFn = [vkFreeMemory](const std::shared_ptr<const VkDevice> &device,
@@ -1661,7 +1842,8 @@ public:
         holder->valid = true;
         return std::shared_ptr<const VkDeviceMemory>(holder, &holder->subobject);
     }
-    std::shared_ptr<void *const> mapDeviceMemory(std::shared_ptr<const VkDeviceMemory> deviceMemory)
+    std::shared_ptr<void *const> mapDeviceMemory(const std::shared_ptr<const VkDevice> &device,
+                                                 std::shared_ptr<const VkDeviceMemory> deviceMemory)
     {
         struct Holder final
         {
@@ -1694,14 +1876,28 @@ public:
             std::make_shared<Holder>(std::move(deviceMemory), device, vkMapMemory, vkUnmapMemory);
         return std::shared_ptr<void *const>(holder, &holder->mappedMemory);
     }
-    void createNewSwapchain() // destroys old swapchain
+    void createNewPipeline(const std::shared_ptr<const VkDevice> &device, VkFormat surfaceFormat)
+    {
+        if(renderPass && renderPipeline && renderPipelineFormat == surfaceFormat)
+            return;
+        renderPipelineFormat = surfaceFormat;
+        renderPass = createRenderPass(device, surfaceFormat);
+        renderPipeline = createPipeline(device,
+                                        vertexShaderModule,
+                                        fragmentShaderModule,
+                                        true,
+                                        false,
+                                        createPipelineLayout(device, {}),
+                                        renderPass,
+                                        0,
+                                        pipelineCache);
+    }
+    void createNewSwapchain(const std::shared_ptr<const VkDevice> &device) // destroys old swapchain
     {
         handleVulkanResult(vkDeviceWaitIdle(*device), "vkDeviceWaitIdle");
         frames.clear();
         std::shared_ptr<const VkSwapchainKHR> oldSwapchain = std::move(swapchain);
         swapchain = nullptr;
-        renderPipeline = nullptr;
-        renderPass = nullptr;
         swapchainImages.clear();
         swapchainImageViews.clear();
         VkSurfaceCapabilitiesKHR surfaceCapabilities;
@@ -1858,7 +2054,8 @@ public:
 
             for(std::uint32_t frameIndex = 0; frameIndex < swapchainImages.size(); frameIndex++)
             {
-                swapchainImageViews.push_back(createImageView(swapchainImages[frameIndex],
+                swapchainImageViews.push_back(createImageView(device,
+                                                              swapchainImages[frameIndex],
                                                               VK_IMAGE_VIEW_TYPE_2D,
                                                               surfaceFormat.format,
                                                               VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1867,14 +2064,7 @@ public:
                                                               0,
                                                               1));
             }
-            renderPass = createRenderPass(surfaceFormat.format);
-            renderPipeline = createPipeline(vertexShaderModule,
-                                            fragmentShaderModule,
-                                            true,
-                                            false,
-                                            createPipelineLayout({}),
-                                            renderPass,
-                                            0);
+            createNewPipeline(device, surfaceFormat.format);
         }
         catch(...)
         {
@@ -2060,6 +2250,7 @@ public:
         deviceCreateInfo.enabledExtensionCount =
             sizeof(deviceExtensionNames) / sizeof(deviceExtensionNames[0]);
         deviceCreateInfo.ppEnabledExtensionNames = deviceExtensionNames;
+        std::shared_ptr<const VkDevice> device;
         {
             auto deviceHolder = std::make_shared<DeviceHolder>(instance);
             handleVulkanResult(
@@ -2067,23 +2258,26 @@ public:
                 "vkCreateDevice");
             deviceHolder->loadDestroyFunction(this);
             device = std::shared_ptr<const VkDevice>(deviceHolder, &deviceHolder->device);
+            atomicDevice.set(device);
         }
-        loadDeviceFunctions();
+        loadDeviceFunctions(device);
         graphicsQueue = getQueue(device, graphicsQueueFamilyIndex, 0);
         if(graphicsQueueFamilyIndex == presentQueueFamilyIndex)
             presentQueue = graphicsQueue;
         else
             presentQueue = getQueue(device, presentQueueFamilyIndex, 0);
-        vertexShaderModule = createShaderModule(vulkanVertexShader);
-        fragmentShaderModule = createShaderModule(vulkanFragmentShader);
+        vertexShaderModule = createShaderModule(device, vulkanVertexShader);
+        fragmentShaderModule = createShaderModule(device, vulkanFragmentShader);
         std::shared_ptr<const VkShaderModule> fragmentShaderModule = nullptr;
-        imageAvailableSemaphore = createSemaphore();
-        renderingFinishedSemaphore = createSemaphore();
-        createNewSwapchain();
+        imageAvailableSemaphore = createSemaphore(device);
+        renderingFinishedSemaphore = createSemaphore(device);
+        pipelineCache = createPipelineCache(device);
+        createNewSwapchain(device);
     }
     void destroyGraphicsContext() noexcept
     {
 #warning finish
+        const std::shared_ptr<const VkDevice> device = atomicDevice.get();
         vkDeviceWaitIdle(*device); // ignore return value
         frames.clear();
         swapchainImages.clear();
@@ -2091,13 +2285,14 @@ public:
         swapchain = nullptr;
         renderPipeline = nullptr;
         renderPass = nullptr;
+        pipelineCache = nullptr;
         imageAvailableSemaphore = nullptr;
         renderingFinishedSemaphore = nullptr;
         vertexShaderModule = nullptr;
         fragmentShaderModule = nullptr;
         graphicsQueue = nullptr;
         presentQueue = nullptr;
-        device = nullptr;
+        atomicDevice.set(nullptr);
         surface = nullptr;
         physicalDevice = nullptr;
         instance = nullptr;
@@ -2181,6 +2376,7 @@ public:
     void renderFrame(VulkanCommandBuffer &commandBufferIn)
     {
         constexprAssert(commandBufferIn.finished);
+        const std::shared_ptr<const VkDevice> device = atomicDevice.get();
         if(!swapchain)
             return;
         std::uint32_t imageIndex = 0;
@@ -2188,7 +2384,7 @@ public:
             *device, *swapchain, UINT64_MAX, *imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
         if(acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            createNewSwapchain();
+            createNewSwapchain(device);
             return;
         }
         handleVulkanResult(acquireNextImageResult, "vkAcquireNextImageKHR");
@@ -2200,7 +2396,7 @@ public:
         }
         else
         {
-            frames.emplace_back(createFence(true));
+            frames.emplace_back(createFence(device, true));
         }
         FrameObjects &frame = frames.back();
         handleVulkanResult(
@@ -2209,7 +2405,8 @@ public:
         frame.objects.clear();
         handleVulkanResult(vkResetFences(*device, 1, &*frame.fence), "vkResetFences");
         auto commandBuffer =
-            allocateCommandBuffer(createCommandPool(true, false, graphicsQueueFamilyIndex),
+            allocateCommandBuffer(device,
+                                  createCommandPool(device, true, false, graphicsQueueFamilyIndex),
                                   VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         VkCommandBufferBeginInfo commandBufferBeginInfo{};
         commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2229,7 +2426,8 @@ public:
         renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassBeginInfo.renderPass = *renderPass;
         frame.objects.push_back(renderPass);
-        auto framebuffer = createFramebuffer(renderPass,
+        auto framebuffer = createFramebuffer(device,
+                                             renderPass,
                                              {swapchainImageViews[imageIndex]},
                                              swapchainExtent.width,
                                              swapchainExtent.height);
@@ -2305,7 +2503,7 @@ public:
         auto presentResult = vkQueuePresentKHR(*presentQueue, &presentInfo);
         if(presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
         {
-            createNewSwapchain();
+            createNewSwapchain(device);
             return;
         }
         handleVulkanResult(presentResult, "vkQueuePresentKHR");
@@ -2313,7 +2511,7 @@ public:
         if(swapchainExtent.width != std::get<0>(currentWindowSize)
            || swapchainExtent.height != std::get<1>(currentWindowSize))
         {
-            createNewSwapchain();
+            createNewSwapchain(device);
             return;
         }
     }
@@ -2364,8 +2562,9 @@ void VulkanDriver::setNewImageData(TextureId texture, const std::shared_ptr<cons
 std::shared_ptr<RenderBuffer> VulkanDriver::makeBuffer(
     const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
 {
-#warning finish
-    return std::make_shared<Implementation::VulkanRenderBuffer>(maximumSizes);
+    auto retval = std::make_shared<Implementation::VulkanRenderBuffer>(maximumSizes);
+    retval->attachDevice(implementation->atomicDevice.get(), implementation);
+    return retval;
 }
 
 std::shared_ptr<CommandBuffer> VulkanDriver::makeCommandBuffer()
