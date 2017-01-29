@@ -46,6 +46,7 @@
 #include <unordered_set>
 #include "../../util/atomic_shared_ptr.h"
 #include "../../util/memory_manager.h"
+#include "../shape/cube.h"
 #include <type_traits>
 #include "SDL_syswm.h"
 #if defined(__ANDROID__)
@@ -514,7 +515,11 @@ public:
         constexpr VulkanVec4(const ColorF &v) noexcept : v{v.red, v.green, v.blue, v.opacity}
         {
         }
+        constexpr VulkanVec4(float v0, float v1, float v2, float v3) noexcept : v{v0, v1, v2, v3}
+        {
+        }
     };
+    static_assert(sizeof(VulkanVec4) == 4 * sizeof(float), "");
     struct VulkanVec3 final
     {
         float v[3];
@@ -524,7 +529,11 @@ public:
         constexpr VulkanVec3(const util::Vector3F &v) noexcept : v{v.x, v.y, v.z}
         {
         }
+        constexpr VulkanVec3(float v0, float v1, float v2) noexcept : v{v0, v1, v2}
+        {
+        }
     };
+    static_assert(sizeof(VulkanVec3) == 3 * sizeof(float), "");
     struct VulkanVec2 final
     {
         float v[2];
@@ -534,7 +543,26 @@ public:
         constexpr VulkanVec2(const TextureCoordinates &v) noexcept : v{v.u, v.v}
         {
         }
+        constexpr VulkanVec2(float v0, float v1) noexcept : v{v0, v1}
+        {
+        }
     };
+    static_assert(sizeof(VulkanVec2) == 2 * sizeof(float), "");
+    struct VulkanMat4 final
+    {
+        VulkanVec4 v[4];
+        constexpr VulkanMat4() noexcept : v{}
+        {
+        }
+        constexpr VulkanMat4(const util::Matrix4x4F &v) noexcept
+            : v{VulkanVec4(v[0][0], v[0][1], v[0][2], v[0][3]),
+                VulkanVec4(v[1][0], v[1][1], v[1][2], v[1][3]),
+                VulkanVec4(v[2][0], v[2][1], v[2][2], v[2][3]),
+                VulkanVec4(v[3][0], v[3][1], v[3][2], v[3][3])}
+        {
+        }
+    };
+    static_assert(sizeof(VulkanMat4) == 4 * sizeof(VulkanVec4), "");
     struct VulkanVertex final
     {
         VulkanVec3 position;
@@ -581,6 +609,13 @@ public:
         }
     };
     static_assert(sizeof(VulkanTriangle) == 3 * sizeof(VulkanVertex), "");
+    struct PushConstants final
+    {
+        // must match PushConstants in vulkan.vert
+        VulkanMat4 transformMatrix;
+    };
+    static_assert(sizeof(PushConstants) <= 128,
+                  "PushConstants is bigger than minimum guaranteed size");
     class TemporaryTriangleBuffer final
     {
         TemporaryTriangleBuffer(const TemporaryTriangleBuffer &) = delete;
@@ -949,6 +984,7 @@ public:
     std::deque<FrameObjects> frames;
     VkFormat renderPipelineFormat = VK_FORMAT_UNDEFINED;
     std::shared_ptr<const VkRenderPass> renderPass;
+    std::shared_ptr<const VkPipelineLayout> renderPipelineLayout;
     std::shared_ptr<const VkPipeline> renderPipeline;
     VkExtent2D swapchainExtent{};
     VertexBufferMemoryManager vertexBufferMemoryManager;
@@ -966,6 +1002,7 @@ public:
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdBindVertexBuffers)                      \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdDraw)                                   \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdEndRenderPass)                          \
+    VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdPushConstants)                          \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdSetScissor)                             \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCmdSetViewport)                            \
     VULKAN_DRIVER_DEVICE_FUNCTION(vkCreateBuffer)                              \
@@ -1629,8 +1666,7 @@ public:
         rasterizationState.rasterizerDiscardEnable = earlyZTestEnabled ? VK_TRUE : VK_FALSE;
         rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
-#warning verify clockwise
+        rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizationState.depthBiasEnable = VK_FALSE;
         rasterizationState.lineWidth = 1;
         VkPipelineMultisampleStateCreateInfo multisampleState{};
@@ -1699,7 +1735,8 @@ public:
     }
     std::shared_ptr<const VkPipelineLayout> createPipelineLayout(
         const std::shared_ptr<const VkDevice> &device,
-        std::vector<std::shared_ptr<const VkDescriptorSetLayout>> descriptorSetLayouts)
+        std::vector<std::shared_ptr<const VkDescriptorSetLayout>> descriptorSetLayouts,
+        const std::vector<VkPushConstantRange> &pushConstantRanges)
     {
         const auto vkDestroyPipelineLayout = this->vkDestroyPipelineLayout;
         auto destroyFn = [vkDestroyPipelineLayout](const std::shared_ptr<const VkDevice> &device,
@@ -1728,9 +1765,8 @@ public:
             descriptorSetLayoutArray.push_back(*i);
         createInfo.setLayoutCount = descriptorSetLayoutArray.size();
         createInfo.pSetLayouts = descriptorSetLayoutArray.data();
-        std::initializer_list<VkPushConstantRange> pushConstantRanges = {};
         createInfo.pushConstantRangeCount = pushConstantRanges.size();
-        createInfo.pPushConstantRanges = pushConstantRanges.begin();
+        createInfo.pPushConstantRanges = pushConstantRanges.data();
         auto holder =
             std::make_shared<Holder>(std::move(descriptorSetLayouts), device, std::move(destroyFn));
         handleVulkanResult(
@@ -1910,16 +1946,22 @@ public:
     }
     void createNewPipeline(const std::shared_ptr<const VkDevice> &device, VkFormat surfaceFormat)
     {
-        if(renderPass && renderPipeline && renderPipelineFormat == surfaceFormat)
+        if(renderPass && renderPipeline && renderPipelineLayout
+           && renderPipelineFormat == surfaceFormat)
             return;
         renderPipelineFormat = surfaceFormat;
         renderPass = createRenderPass(device, surfaceFormat);
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = sizeof(PushConstants);
+        renderPipelineLayout = createPipelineLayout(device, {}, {pushConstantRange});
         renderPipeline = createPipeline(device,
                                         vertexShaderModule,
                                         fragmentShaderModule,
                                         true,
                                         false,
-                                        createPipelineLayout(device, {}),
+                                        renderPipelineLayout,
                                         renderPass,
                                         0,
                                         pipelineCache);
@@ -2316,6 +2358,7 @@ public:
         swapchainImageViews.clear();
         swapchain = nullptr;
         renderPipeline = nullptr;
+        renderPipelineLayout = nullptr;
         renderPass = nullptr;
         pipelineCache = nullptr;
         imageAvailableSemaphore = nullptr;
@@ -2481,25 +2524,72 @@ public:
         vkCmdBeginRenderPass(*commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *renderPipeline);
         frame.addObject(renderPipeline);
-        const std::size_t vertexCount = 3;
-        VulkanVertex vertices[vertexCount] = {
-            VertexWithoutNormal(util::Vector3F(0, -0.5, 0.5), TextureCoordinates(), rgbF(1, 0, 0)),
-            VertexWithoutNormal(util::Vector3F(0.5, 0.5, 0.5), TextureCoordinates(), rgbF(0, 1, 0)),
-            VertexWithoutNormal(
-                util::Vector3F(-0.5, 0.5, 0.5), TextureCoordinates(), rgbF(0, 0, 1)),
-        };
+        MemoryRenderBuffer renderBuffer;
+        Texture texture(TextureId{});
+        shape::renderCube(renderBuffer,
+                          RenderLayer::Opaque,
+                          {texture, texture, texture, texture, texture, texture},
+                          {true, true, true, true, true, true},
+                          util::Vector3F(-0.5f),
+                          util::Vector3F(0.5f),
+                          {rgbF(0, 0, 0),
+                           rgbF(0, 0, 1),
+                           rgbF(0, 1, 0),
+                           rgbF(0, 1, 1),
+                           rgbF(1, 0, 0),
+                           rgbF(1, 0, 1),
+                           rgbF(1, 1, 0),
+                           rgbF(1, 1, 1)});
+        auto &triangles = renderBuffer.getTriangles(RenderLayer::Opaque);
+        std::vector<VulkanTriangle> vulkanTriangles;
+        vulkanTriangles.reserve(triangles.size());
+        for(auto &triangle : triangles)
+        {
+            vulkanTriangles.push_back(triangle);
+        }
+        double currentTime = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                 std::chrono::steady_clock::now().time_since_epoch()).count();
         VertexBufferAllocation vertexBuffer =
-            vertexBufferMemoryManager.allocate(sizeof(VulkanVertex) * vertexCount);
+            vertexBufferMemoryManager.allocate(sizeof(VulkanTriangle) * vulkanTriangles.size());
         std::memcpy(
             static_cast<void *>(reinterpret_cast<char *>(*(*vertexBuffer.getBase())->mapMemory())
                                 + vertexBuffer.getOffset()),
-            static_cast<const void *>(&vertices[0]),
-            sizeof(VulkanVertex) * vertexCount);
+            static_cast<const void *>(vulkanTriangles.data()),
+            sizeof(VulkanTriangle) * vulkanTriangles.size());
         VkBuffer vertexBufferHandle = *(*vertexBuffer.getBase())->getBuffer();
         VkDeviceSize vertexBufferOffset = vertexBuffer.getOffset();
         vkCmdBindVertexBuffers(*commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
         frame.addObject(vertexBuffer);
-        vkCmdDraw(*commandBuffer, vertexCount, 1, 0, 0);
+        PushConstants pushConstants{};
+        auto outputSize = vulkanDriver->getOutputSize();
+        float scaleX = std::get<0>(outputSize);
+        float scaleY = std::get<1>(outputSize);
+        scaleX /= std::get<1>(outputSize);
+        scaleY /= std::get<0>(outputSize);
+        if(scaleX < 1)
+            scaleX = 1;
+        if(scaleY < 1)
+            scaleY = 1;
+        const float nearPlane = 0.01;
+        const float farPlane = 100;
+        pushConstants.transformMatrix = util::Matrix4x4F::rotateX(currentTime)
+                                            .concat(util::Matrix4x4F::rotateY(currentTime * 1.234))
+                                            .concat(util::Matrix4x4F::translate(0, 1, -3))
+                                            .concat(util::Matrix4x4F::frustum(-nearPlane * scaleX,
+                                                                              nearPlane * scaleX,
+                                                                              -nearPlane * scaleY,
+                                                                              nearPlane * scaleY,
+                                                                              nearPlane,
+                                                                              farPlane))
+                                            .concat(util::Matrix4x4F::scale(1, -1, 1));
+        vkCmdPushConstants(*commandBuffer,
+                           *renderPipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT,
+                           0,
+                           sizeof(PushConstants),
+                           static_cast<const void *>(&pushConstants));
+        frame.addObject(renderPipelineLayout);
+        vkCmdDraw(*commandBuffer, 3 * vulkanTriangles.size(), 1, 0, 0);
         vkCmdEndRenderPass(*commandBuffer);
         handleVulkanResult(vkEndCommandBuffer(*commandBuffer), "vkEndCommandBuffer");
         const VkPipelineStageFlags waitDestinationStageFlags = VK_PIPELINE_STAGE_TRANSFER_BIT;

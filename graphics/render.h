@@ -321,6 +321,14 @@ public:
             }
         }
     }
+    std::vector<Triangle> &getTriangles(RenderLayer renderLayer) noexcept
+    {
+        return triangleBuffers[renderLayer];
+    }
+    const std::vector<Triangle> &getTriangles(RenderLayer renderLayer) const noexcept
+    {
+        return triangleBuffers[renderLayer];
+    }
 };
 
 class SizedMemoryRenderBuffer final : public ReadableRenderBuffer

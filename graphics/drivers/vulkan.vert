@@ -21,10 +21,22 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-/* input variables; must match VulkanDriver::Implementation::VulkanVertex in vulkan_driver.cpp */
+/* input variables; must match
+ * VulkanDriver::Implementation::VulkanVertex
+ * in vulkan_driver.cpp
+ */
 layout(location = 0) in vec3 positionIn;
 layout(location = 1) in vec4 colorIn;
 layout(location = 2) in vec2 textureCoordinatesIn;
+
+layout(push_constant) uniform PushConstants
+{
+    /* push constant variables; must match
+     * VulkanDriver::Implementation::PushConstants
+     * in vulkan_driver.cpp
+     */
+    mat4 transformMatrix;
+} pushConstants;
 
 /* output variables; must match input variables in vulkan.frag */
 layout(location = 0) out vec4 colorOut;
@@ -38,5 +50,6 @@ out gl_PerVertex
 void main()
 {
     colorOut = colorIn;
-    gl_Position = vec4(positionIn, 1);
+    textureCoordinatesOut = textureCoordinatesIn;
+    gl_Position = pushConstants.transformMatrix * vec4(positionIn, 1);
 }
