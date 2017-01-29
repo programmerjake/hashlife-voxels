@@ -62,18 +62,22 @@ public:
           state(state)
     {
     }
-    template <typename Fn>
-    FunctionReference(Fn &&fn) noexcept
+    FunctionReference(const FunctionReference &) = default;
+    FunctionReference &operator=(const FunctionReference &) = default;
+    FunctionReference(FunctionReference &&) = default;
+    FunctionReference &operator=(FunctionReference &&) = default;
+    template <typename Fn, typename = typename std::enable_if<!std::is_same<typename std::decay<Fn>::type, FunctionReference>::value>::type>
+    explicit FunctionReference(Fn &&fn) noexcept
         : function([](void *state, Args... args) -> R
                    {
                        return std::forward<Fn>(*static_cast<typename std::decay<Fn>::type *>(
                                                    state))(std::forward<Args>(args)...);
                    }),
-          state(const_cast<char *>(&reinterpret_cast<const volatile char &>(fn)))
+          state(const_cast<void *>(static_cast<const volatile void *>(std::addressof(fn))))
     {
     }
     template <typename R2, typename... Args2>
-    FunctionReference(R2 (*function)(Args2...)) noexcept
+    explicit FunctionReference(R2 (*function)(Args2...)) noexcept
         : function([](void *state, Args... args) -> R
                    {
                        return reinterpret_cast<R2 (*)(Args2...)>(state)(

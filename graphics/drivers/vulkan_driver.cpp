@@ -35,10 +35,17 @@
 #include <utility>
 #include <mutex>
 #include <deque>
+#include <queue>
 #include <tuple>
 #include <chrono>
 #include <cmath>
+#include <unordered_map>
+#include <map>
+#include <set>
+#include <list>
+#include <unordered_set>
 #include "../../util/atomic_shared_ptr.h"
+#include "../../util/memory_manager.h"
 #include <type_traits>
 #include "SDL_syswm.h"
 #if defined(__ANDROID__)
@@ -300,19 +307,41 @@ public:
             return std::shared_ptr<const VkBuffer>(sharedThis.lock(), &buffer);
         }
     };
-    struct SubBuffer final
+    template <VkBufferUsageFlags usage>
+    struct BaseBufferMemoryManager final
     {
-        std::shared_ptr<Buffer> buffer;
-        std::size_t offset;
-        std::size_t size;
-        SubBuffer() : buffer(), offset(), size()
+        Implementation *imp;
+        typedef VkDeviceSize SizeType;
+        typedef std::shared_ptr<Buffer> *BaseType;
+        BaseBufferMemoryManager(Implementation *imp) : imp(imp)
         {
         }
-        SubBuffer(std::shared_ptr<Buffer> buffer, std::size_t offset, std::size_t size)
-            : buffer(std::move(buffer)), offset(offset), size(size)
+        void free(BaseType buffer) noexcept
         {
+            delete buffer;
+        }
+        BaseType allocate(SizeType size)
+        {
+            return new std::shared_ptr<Buffer>(Buffer::make(imp->atomicDevice.get(),
+                                                            size,
+                                                            usage,
+                                                            imp->physicalDeviceMemoryProperties,
+                                                            imp->vkCreateBuffer,
+                                                            imp->vkDestroyBuffer,
+                                                            imp->vkAllocateMemory,
+                                                            imp->vkFreeMemory,
+                                                            imp->vkMapMemory,
+                                                            imp->vkUnmapMemory,
+                                                            imp->vkGetBufferMemoryRequirements,
+                                                            imp->vkBindBufferMemory));
         }
     };
+
+    typedef util::MemoryManager<BaseBufferMemoryManager<VK_BUFFER_USAGE_VERTEX_BUFFER_BIT>,
+                                static_cast<std::uint64_t>(1) << 20 /* 1MB */,
+                                0x100 /* max nonCoherentAtomSize from Vulkan spec */>
+        VertexBufferMemoryManager;
+    typedef VertexBufferMemoryManager::AllocationReference VertexBufferAllocation;
     struct InstanceHolder final
     {
         std::shared_ptr<void> vulkanLoader;
@@ -644,7 +673,7 @@ public:
         util::EnumArray<TriangleBuffer, RenderLayer> triangleBuffers;
         bool finished;
         std::shared_ptr<const VkDevice> device;
-        SubBuffer buffer;
+        VertexBufferAllocation buffer;
         std::shared_ptr<void *const> mappedBuffer;
 
     public:
@@ -661,7 +690,7 @@ public:
         {
             if(!device)
                 return;
-            if(this->device == device && buffer.buffer != nullptr)
+            if(this->device == device && buffer != nullptr)
                 return;
             std::size_t bufferSize = 0;
             for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
@@ -672,23 +701,10 @@ public:
                 return;
             this->device = device;
             mappedBuffer = nullptr;
-            buffer.buffer = nullptr;
-            buffer = SubBuffer(Buffer::make(device,
-                                            bufferSize,
-                                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                            imp->physicalDeviceMemoryProperties,
-                                            imp->vkCreateBuffer,
-                                            imp->vkDestroyBuffer,
-                                            imp->vkAllocateMemory,
-                                            imp->vkFreeMemory,
-                                            imp->vkMapMemory,
-                                            imp->vkUnmapMemory,
-                                            imp->vkGetBufferMemoryRequirements,
-                                            imp->vkBindBufferMemory),
-                               0,
-                               bufferSize);
-            mappedBuffer = buffer.buffer->mapMemory();
-            std::size_t bufferPartStartOffset = buffer.offset;
+            buffer = nullptr;
+            buffer = imp->vertexBufferMemoryManager.allocate(bufferSize);
+            mappedBuffer = (*buffer.getBase())->mapMemory();
+            std::size_t bufferPartStartOffset = buffer.getOffset();
             for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 triangleBuffers[renderLayer].finalBufferOffset = bufferPartStartOffset;
@@ -873,10 +889,24 @@ public:
     struct FrameObjects final
     {
         const std::shared_ptr<const VkFence> fence;
-        std::vector<std::shared_ptr<const void>> objects;
+        std::vector<std::shared_ptr<const void>> sharedPointers;
+        std::vector<VertexBufferAllocation> vertexBufferAllocations;
         explicit FrameObjects(std::shared_ptr<const VkFence> fence)
-            : fence(std::move(fence)), objects()
+            : fence(std::move(fence)), sharedPointers(), vertexBufferAllocations()
         {
+        }
+        void addObject(std::shared_ptr<const void> v)
+        {
+            sharedPointers.push_back(std::move(v));
+        }
+        void addObject(VertexBufferAllocation v)
+        {
+            vertexBufferAllocations.push_back(std::move(v));
+        }
+        void resetObjects()
+        {
+            sharedPointers.clear();
+            vertexBufferAllocations.clear();
         }
     };
     struct AtomicDevice final
@@ -921,6 +951,7 @@ public:
     std::shared_ptr<const VkRenderPass> renderPass;
     std::shared_ptr<const VkPipeline> renderPipeline;
     VkExtent2D swapchainExtent{};
+    VertexBufferMemoryManager vertexBufferMemoryManager;
 
 public:
 #define VULKAN_DRIVER_END()
@@ -1098,7 +1129,8 @@ public:
         if(!vkGetInstanceProcAddr)
             throw std::runtime_error("invalid vulkan loader: vkGetInstanceProcAddr not found");
     }
-    explicit Implementation(VulkanDriver *vulkanDriver) : vulkanDriver(vulkanDriver)
+    explicit Implementation(VulkanDriver *vulkanDriver)
+        : vulkanDriver(vulkanDriver), vertexBufferMemoryManager(this)
     {
     }
 
@@ -2293,6 +2325,7 @@ public:
         graphicsQueue = nullptr;
         presentQueue = nullptr;
         atomicDevice.set(nullptr);
+        vertexBufferMemoryManager.shrink();
         surface = nullptr;
         physicalDevice = nullptr;
         instance = nullptr;
@@ -2402,7 +2435,7 @@ public:
         handleVulkanResult(
             vkWaitForFences(*device, 1, &*frame.fence, VK_TRUE, static_cast<std::uint64_t>(-1)),
             "vkWaitForFences");
-        frame.objects.clear();
+        frame.resetObjects();
         handleVulkanResult(vkResetFences(*device, 1, &*frame.fence), "vkResetFences");
         auto commandBuffer =
             allocateCommandBuffer(device,
@@ -2425,14 +2458,14 @@ public:
         VkRenderPassBeginInfo renderPassBeginInfo{};
         renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassBeginInfo.renderPass = *renderPass;
-        frame.objects.push_back(renderPass);
+        frame.addObject(renderPass);
         auto framebuffer = createFramebuffer(device,
                                              renderPass,
                                              {swapchainImageViews[imageIndex]},
                                              swapchainExtent.width,
                                              swapchainExtent.height);
         renderPassBeginInfo.framebuffer = *framebuffer;
-        frame.objects.push_back(framebuffer);
+        frame.addObject(framebuffer);
         renderPassBeginInfo.renderArea.offset.x = 0;
         renderPassBeginInfo.renderArea.offset.y = 0;
         renderPassBeginInfo.renderArea.extent = swapchainExtent;
@@ -2447,7 +2480,7 @@ public:
         vkCmdSetScissor(*commandBuffer, 0, 1, &renderPassBeginInfo.renderArea);
         vkCmdBeginRenderPass(*commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *renderPipeline);
-        frame.objects.push_back(renderPipeline);
+        frame.addObject(renderPipeline);
         const std::size_t vertexCount = 3;
         VulkanVertex vertices[vertexCount] = {
             VertexWithoutNormal(util::Vector3F(0, -0.5, 0.5), TextureCoordinates(), rgbF(1, 0, 0)),
@@ -2455,28 +2488,17 @@ public:
             VertexWithoutNormal(
                 util::Vector3F(-0.5, 0.5, 0.5), TextureCoordinates(), rgbF(0, 0, 1)),
         };
-        SubBuffer subbuffer(Buffer::make(device,
-                                         sizeof(VulkanVertex) * vertexCount,
-                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                         physicalDeviceMemoryProperties,
-                                         vkCreateBuffer,
-                                         vkDestroyBuffer,
-                                         vkAllocateMemory,
-                                         vkFreeMemory,
-                                         vkMapMemory,
-                                         vkUnmapMemory,
-                                         vkGetBufferMemoryRequirements,
-                                         vkBindBufferMemory),
-                            0,
-                            sizeof(VulkanVertex) * vertexCount);
-        std::memcpy(static_cast<void *>(reinterpret_cast<char *>(*subbuffer.buffer->mapMemory())
-                                        + subbuffer.offset),
-                    static_cast<const void *>(&vertices[0]),
-                    sizeof(VulkanVertex) * vertexCount);
-        VkBuffer vertexBufferHandle = *subbuffer.buffer->getBuffer();
-        VkDeviceSize vertexBufferOffset = subbuffer.offset;
+        VertexBufferAllocation vertexBuffer =
+            vertexBufferMemoryManager.allocate(sizeof(VulkanVertex) * vertexCount);
+        std::memcpy(
+            static_cast<void *>(reinterpret_cast<char *>(*(*vertexBuffer.getBase())->mapMemory())
+                                + vertexBuffer.getOffset()),
+            static_cast<const void *>(&vertices[0]),
+            sizeof(VulkanVertex) * vertexCount);
+        VkBuffer vertexBufferHandle = *(*vertexBuffer.getBase())->getBuffer();
+        VkDeviceSize vertexBufferOffset = vertexBuffer.getOffset();
         vkCmdBindVertexBuffers(*commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
-        frame.objects.push_back(subbuffer.buffer);
+        frame.addObject(vertexBuffer);
         vkCmdDraw(*commandBuffer, vertexCount, 1, 0, 0);
         vkCmdEndRenderPass(*commandBuffer);
         handleVulkanResult(vkEndCommandBuffer(*commandBuffer), "vkEndCommandBuffer");
@@ -2490,7 +2512,7 @@ public:
         submitInfo.pCommandBuffers = &*commandBuffer;
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &*renderingFinishedSemaphore;
-        frame.objects.push_back(std::move(commandBuffer));
+        frame.addObject(std::move(commandBuffer));
         handleVulkanResult(vkQueueSubmit(*graphicsQueue, 1, &submitInfo, *frame.fence),
                            "vkQueueSubmit");
         VkPresentInfoKHR presentInfo{};

@@ -344,250 +344,261 @@ int main()
         std::size_t tickCount = 0;
         auto lastTPSReportTime = lastFPSReportTime;
         auto lastFrameTime = lastFPSReportTime;
-        graphics::Driver::get().run(
-            [&]() -> std::shared_ptr<graphics::CommandBuffer>
+        auto renderFn = [&]() -> std::shared_ptr<graphics::CommandBuffer>
+        {
+            graphics::Driver::get().setRelativeMouseMode(!paused);
+            if(!mainGameLoopThread.joinable())
             {
-                graphics::Driver::get().setRelativeMouseMode(!paused);
-                if(!mainGameLoopThread.joinable())
+                std::size_t totalThreadCount = threading::Thread::hardwareConcurrency();
+                if(totalThreadCount < 4)
+                    totalThreadCount = 4;
+                for(std::size_t i = totalThreadCount - 2; i > 0; i--)
                 {
-                    std::size_t totalThreadCount = threading::Thread::hardwareConcurrency();
-                    if(totalThreadCount < 4)
-                        totalThreadCount = 4;
-                    for(std::size_t i = totalThreadCount - 2; i > 0; i--)
-                    {
-                        generateRenderBuffersThreads.push_back(threading::Thread(
-                            [&]()
-                            {
-                                std::unique_lock<std::mutex> lockIt(generateRenderBuffersLock);
-                                while(!generateRenderBuffersDone)
-                                {
-                                    if(generateRenderBuffersWorkList.empty())
-                                    {
-                                        generateRenderBuffersCond.wait(lockIt);
-                                        continue;
-                                    }
-                                    auto key = std::move(generateRenderBuffersWorkList.front());
-                                    generateRenderBuffersWorkList.pop_front();
-                                    lockIt.unlock();
-                                    auto result = world::HashlifeWorld::renderRenderCacheEntry(key);
-                                    lockIt.lock();
-                                    generateRenderBuffersMap[key].renderBuffer = std::move(result);
-                                    generateRenderBuffersCond.notify_all();
-                                }
-                            }));
-                    }
-                    mainGameLoopThread = threading::Thread(
+                    generateRenderBuffersThreads.push_back(threading::Thread(
                         [&]()
                         {
-                            std::unique_lock<std::mutex> lockIt(mainGameLoopLock);
-                            auto lastTick = std::chrono::high_resolution_clock::now();
-                            while(!mainGameLoopDone)
+                            std::unique_lock<std::mutex> lockIt(generateRenderBuffersLock);
+                            while(!generateRenderBuffersDone)
                             {
-                                lastTick = std::chrono::high_resolution_clock::now();
-                                if(mainGameLoopPaused)
+                                if(generateRenderBuffersWorkList.empty())
                                 {
-                                    mainGameLoopCond.wait(lockIt);
+                                    generateRenderBuffersCond.wait(lockIt);
                                     continue;
                                 }
-                                auto playerPosition = mainGameLoopPlayerPosition;
+                                auto key = std::move(generateRenderBuffersWorkList.front());
+                                generateRenderBuffersWorkList.pop_front();
                                 lockIt.unlock();
-                                auto now = std::chrono::steady_clock::now();
-                                tickCount++;
-                                if(now - lastTPSReportTime >= std::chrono::seconds(5))
+                                auto result = world::HashlifeWorld::renderRenderCacheEntry(key);
+                                lockIt.lock();
+                                generateRenderBuffersMap[key].renderBuffer = std::move(result);
+                                generateRenderBuffersCond.notify_all();
+                            }
+                        }));
+                }
+                mainGameLoopThread = threading::Thread(
+                    [&]()
+                    {
+                        std::unique_lock<std::mutex> lockIt(mainGameLoopLock);
+                        auto lastTick = std::chrono::high_resolution_clock::now();
+                        while(!mainGameLoopDone)
+                        {
+                            lastTick = std::chrono::high_resolution_clock::now();
+                            if(mainGameLoopPaused)
+                            {
+                                mainGameLoopCond.wait(lockIt);
+                                continue;
+                            }
+                            auto playerPosition = mainGameLoopPlayerPosition;
+                            lockIt.unlock();
+                            auto now = std::chrono::steady_clock::now();
+                            tickCount++;
+                            if(now - lastTPSReportTime >= std::chrono::seconds(5))
+                            {
+                                lastTPSReportTime += std::chrono::seconds(5);
+                                std::ostringstream ss;
+                                ss << "TPS: " << static_cast<float>(tickCount) / 5;
                                 {
-                                    lastTPSReportTime += std::chrono::seconds(5);
-                                    std::ostringstream ss;
-                                    ss << "TPS: " << static_cast<float>(tickCount) / 5;
-                                    {
-                                        std::unique_lock<std::mutex> lockGenerateRenderBuffers(
-                                            generateRenderBuffersLock);
-                                        ss << " " << generateRenderBuffersWorkList.size() << " "
-                                           << generateRenderBuffersMap.size();
-                                    }
-                                    tickCount = 0;
-                                    logging::log(logging::Level::Info, "main", ss.str());
+                                    std::unique_lock<std::mutex> lockGenerateRenderBuffers(
+                                        generateRenderBuffersLock);
+                                    ss << " " << generateRenderBuffersWorkList.size() << " "
+                                       << generateRenderBuffersMap.size();
                                 }
-                                theWorld->stepAndCollectGarbage(blockStepGlobalState);
-                                {
-                                    theWorld->updateView(
-                                        [&](const std::shared_ptr<world::HashlifeWorld::
-                                                                      RenderCacheEntryReference> &
-                                                key)
-                                            -> std::shared_ptr<graphics::ReadableRenderBuffer>
-                                        {
-                                            std::unique_lock<std::mutex> lockGenerateRenderBuffers(
-                                                generateRenderBuffersLock);
-                                            auto iter = generateRenderBuffersMap.find(key);
-                                            if(iter == generateRenderBuffersMap.end())
+                                tickCount = 0;
+                                logging::log(logging::Level::Info, "main", ss.str());
+                            }
+                            theWorld->stepAndCollectGarbage(blockStepGlobalState);
+                            {
+                                theWorld->updateView(
+                                    util::
+                                        FunctionReference<std::shared_ptr<graphics::
+                                                                              ReadableRenderBuffer>(
+                                            std::shared_ptr<world::HashlifeWorld::
+                                                                RenderCacheEntryReference> key)>(
+                                            [&](const std::
+                                                    shared_ptr<world::HashlifeWorld::
+                                                                   RenderCacheEntryReference> &key)
+                                                -> std::shared_ptr<graphics::ReadableRenderBuffer>
                                             {
-                                                generateRenderBuffersMap.emplace(
-                                                    key, GenerateRenderBuffersValue());
-                                                generateRenderBuffersWorkList.push_back(key);
-                                                generateRenderBuffersCond.notify_all();
+                                                std::unique_lock<std::mutex>
+                                                    lockGenerateRenderBuffers(
+                                                        generateRenderBuffersLock);
+                                                auto iter = generateRenderBuffersMap.find(key);
+                                                if(iter == generateRenderBuffersMap.end())
+                                                {
+                                                    generateRenderBuffersMap.emplace(
+                                                        key, GenerateRenderBuffersValue());
+                                                    generateRenderBuffersWorkList.push_back(key);
+                                                    generateRenderBuffersCond.notify_all();
+                                                    return nullptr;
+                                                }
+                                                if(std::get<1>(*iter).renderBuffer)
+                                                {
+                                                    auto retval =
+                                                        std::move(std::get<1>(*iter).renderBuffer);
+                                                    generateRenderBuffersMap.erase(iter);
+                                                    return retval;
+                                                }
                                                 return nullptr;
-                                            }
-                                            if(std::get<1>(*iter).renderBuffer)
-                                            {
-                                                auto retval =
-                                                    std::move(std::get<1>(*iter).renderBuffer);
-                                                generateRenderBuffersMap.erase(iter);
-                                                return retval;
-                                            }
-                                            return nullptr;
-                                        },
+                                            }),
+                                    util::FunctionReference<void(
+                                        std::shared_ptr<world::HashlifeWorld::GPURenderBufferCache::
+                                                            Entry>)>(
                                         [&](const std::shared_ptr<world::HashlifeWorld::
                                                                       GPURenderBufferCache::Entry> &
                                                 entry)
                                         {
                                             entry->gpuRenderBuffer =
                                                 entry->sourceRenderBuffers.render();
-                                        },
-                                        playerPosition,
-                                        farPlane,
-                                        blockStepGlobalState,
-                                        gpuRenderBufferCache);
-                                }
-                                // sleep until 1/20 of a second has elapsed
-                                // since lastTick
-#if 1
-                                threading::thisThread::sleepUntil(lastTick
-                                                                  + std::chrono::milliseconds(50));
-#endif
-                                lockIt.lock();
+                                        }),
+                                    playerPosition,
+                                    farPlane,
+                                    blockStepGlobalState,
+                                    gpuRenderBufferCache);
                             }
-                        });
-                }
-                auto now = std::chrono::steady_clock::now();
-                auto deltaTime = std::chrono::duration_cast<std::chrono::duration<double>>(
-                                     now - lastFrameTime).count();
-                lastFrameTime = now;
-                if(deltaTime > 0.1f)
-                    deltaTime = 0.1f;
-                frameCount++;
-                if(now - lastFPSReportTime >= std::chrono::seconds(5))
-                {
-                    lastFPSReportTime += std::chrono::seconds(5);
-                    std::ostringstream ss;
-                    ss << "FPS: " << static_cast<float>(frameCount) / 5;
-                    frameCount = 0;
-                    logging::log(logging::Level::Info, "main", ss.str());
-                }
-                if(paused)
-                {
-                    deltaViewPhi = 0;
-                    deltaViewTheta = 0;
-                }
-                deltaViewPhi *= 0.5f;
-                viewPhi += deltaViewPhi;
-                if(viewPhi < -M_PI_2)
-                    viewPhi = -M_PI_2;
-                else if(!(viewPhi < M_PI_2)) // handle NaN
-                    viewPhi = M_PI_2;
-                deltaViewTheta *= 0.5f;
-                viewTheta += deltaViewTheta;
-                util::Vector3F playerRelativeMoveDirection(0);
-                if(keyWPressed)
-                    playerRelativeMoveDirection -= util::Vector3F(0, 0, 1);
-                if(keyAPressed)
-                    playerRelativeMoveDirection -= util::Vector3F(1, 0, 0);
-                if(keySPressed)
-                    playerRelativeMoveDirection += util::Vector3F(0, 0, 1);
-                if(keyDPressed)
-                    playerRelativeMoveDirection += util::Vector3F(1, 0, 0);
-                if(keyLeftShiftPressed || keyRightShiftPressed)
-                    playerRelativeMoveDirection -= util::Vector3F(0, 1, 0);
-                if(keySpacePressed)
-                    playerRelativeMoveDirection += util::Vector3F(0, 1, 0);
-                if(paused)
-                    playerRelativeMoveDirection = util::Vector3F(0);
-                playerPosition += transform(
-                    graphics::Transform::rotateY(viewTheta),
-                    util::Vector3F(deltaTime * ballSize / 10) * playerRelativeMoveDirection);
-                {
-                    std::unique_lock<std::mutex> lockIt(mainGameLoopLock);
-                    mainGameLoopPlayerPosition = playerPosition;
-                }
-                auto outputSize = graphics::Driver::get().getOutputSize();
-                float scaleX = std::get<0>(outputSize);
-                float scaleY = std::get<1>(outputSize);
-                scaleX /= std::get<1>(outputSize);
-                scaleY /= std::get<0>(outputSize);
-                if(scaleX < 1)
-                    scaleX = 1;
-                if(scaleY < 1)
-                    scaleY = 1;
-                auto commandBuffer = graphics::Driver::get().makeCommandBuffer();
-                commandBuffer->appendClearCommand(true, true, graphics::rgbF(0.5f, 0.5f, 1));
-                gpuRenderBufferCache.renderView(playerPosition,
-                                                farPlane,
-                                                commandBuffer,
-                                                graphics::Transform::rotateY(-viewTheta)
-                                                    .concat(graphics::Transform::rotateX(-viewPhi)),
-                                                graphics::Transform::frustum(-nearPlane * scaleX,
-                                                                             nearPlane * scaleX,
-                                                                             -nearPlane * scaleY,
-                                                                             nearPlane * scaleY,
-                                                                             nearPlane,
-                                                                             farPlane));
-                commandBuffer->appendPresentCommandAndFinish();
-                return commandBuffer;
-            },
-            [&](const ui::event::Event &event)
+// sleep until 1/20 of a second has elapsed
+// since lastTick
+#if 1
+                            threading::thisThread::sleepUntil(lastTick
+                                                              + std::chrono::milliseconds(50));
+#endif
+                            lockIt.lock();
+                        }
+                    });
+            }
+            auto now = std::chrono::steady_clock::now();
+            auto deltaTime = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                 now - lastFrameTime).count();
+            lastFrameTime = now;
+            if(deltaTime > 0.1f)
+                deltaTime = 0.1f;
+            frameCount++;
+            if(now - lastFPSReportTime >= std::chrono::seconds(5))
             {
-                if(dynamic_cast<const ui::event::Quit *>(&event))
-                    throw QuitException();
-                if(auto keyDown = dynamic_cast<const ui::event::KeyDown *>(&event))
+                lastFPSReportTime += std::chrono::seconds(5);
+                std::ostringstream ss;
+                ss << "FPS: " << static_cast<float>(frameCount) / 5;
+                frameCount = 0;
+                logging::log(logging::Level::Info, "main", ss.str());
+            }
+            if(paused)
+            {
+                deltaViewPhi = 0;
+                deltaViewTheta = 0;
+            }
+            deltaViewPhi *= 0.5f;
+            viewPhi += deltaViewPhi;
+            if(viewPhi < -M_PI_2)
+                viewPhi = -M_PI_2;
+            else if(!(viewPhi < M_PI_2)) // handle NaN
+                viewPhi = M_PI_2;
+            deltaViewTheta *= 0.5f;
+            viewTheta += deltaViewTheta;
+            util::Vector3F playerRelativeMoveDirection(0);
+            if(keyWPressed)
+                playerRelativeMoveDirection -= util::Vector3F(0, 0, 1);
+            if(keyAPressed)
+                playerRelativeMoveDirection -= util::Vector3F(1, 0, 0);
+            if(keySPressed)
+                playerRelativeMoveDirection += util::Vector3F(0, 0, 1);
+            if(keyDPressed)
+                playerRelativeMoveDirection += util::Vector3F(1, 0, 0);
+            if(keyLeftShiftPressed || keyRightShiftPressed)
+                playerRelativeMoveDirection -= util::Vector3F(0, 1, 0);
+            if(keySpacePressed)
+                playerRelativeMoveDirection += util::Vector3F(0, 1, 0);
+            if(paused)
+                playerRelativeMoveDirection = util::Vector3F(0);
+            playerPosition +=
+                transform(graphics::Transform::rotateY(viewTheta),
+                          util::Vector3F(deltaTime * ballSize / 10) * playerRelativeMoveDirection);
+            {
+                std::unique_lock<std::mutex> lockIt(mainGameLoopLock);
+                mainGameLoopPlayerPosition = playerPosition;
+            }
+            auto outputSize = graphics::Driver::get().getOutputSize();
+            float scaleX = std::get<0>(outputSize);
+            float scaleY = std::get<1>(outputSize);
+            scaleX /= std::get<1>(outputSize);
+            scaleY /= std::get<0>(outputSize);
+            if(scaleX < 1)
+                scaleX = 1;
+            if(scaleY < 1)
+                scaleY = 1;
+            auto commandBuffer = graphics::Driver::get().makeCommandBuffer();
+            commandBuffer->appendClearCommand(true, true, graphics::rgbF(0.5f, 0.5f, 1));
+            gpuRenderBufferCache.renderView(playerPosition,
+                                            farPlane,
+                                            commandBuffer,
+                                            graphics::Transform::rotateY(-viewTheta)
+                                                .concat(graphics::Transform::rotateX(-viewPhi)),
+                                            graphics::Transform::frustum(-nearPlane * scaleX,
+                                                                         nearPlane * scaleX,
+                                                                         -nearPlane * scaleY,
+                                                                         nearPlane * scaleY,
+                                                                         nearPlane,
+                                                                         farPlane));
+            commandBuffer->appendPresentCommandAndFinish();
+            return commandBuffer;
+        };
+        graphics::Driver::get().run(
+            util::FunctionReference<std::shared_ptr<graphics::CommandBuffer>()>(renderFn),
+            util::FunctionReference<void(const ui::event::Event &)>(
+                [&](const ui::event::Event &event)
                 {
-                    if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Escape)
+                    if(dynamic_cast<const ui::event::Quit *>(&event))
                         throw QuitException();
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::R)
-                        dynamic_cast<graphics::drivers::SDL2Driver &>(graphics::Driver::get())
-                            .setGraphicsContextRecreationNeeded();
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::W)
-                        keyWPressed = true;
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::A)
-                        keyAPressed = true;
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::S)
-                        keySPressed = true;
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::D)
-                        keyDPressed = true;
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::LShift)
-                        keyLeftShiftPressed = true;
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::RShift)
-                        keyRightShiftPressed = true;
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Space)
-                        keySpacePressed = true;
-                    else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::P)
+                    if(auto keyDown = dynamic_cast<const ui::event::KeyDown *>(&event))
                     {
-                        if(!keyDown->repeat)
-                            paused = !paused;
+                        if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Escape)
+                            throw QuitException();
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::R)
+                            dynamic_cast<graphics::drivers::SDL2Driver &>(graphics::Driver::get())
+                                .setGraphicsContextRecreationNeeded();
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::W)
+                            keyWPressed = true;
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::A)
+                            keyAPressed = true;
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::S)
+                            keySPressed = true;
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::D)
+                            keyDPressed = true;
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::LShift)
+                            keyLeftShiftPressed = true;
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::RShift)
+                            keyRightShiftPressed = true;
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::Space)
+                            keySpacePressed = true;
+                        else if(keyDown->physicalCode == ui::event::PhysicalKeyCode::P)
+                        {
+                            if(!keyDown->repeat)
+                                paused = !paused;
+                        }
                     }
-                }
-                if(auto keyUp = dynamic_cast<const ui::event::KeyUp *>(&event))
-                {
-                    if(keyUp->physicalCode == ui::event::PhysicalKeyCode::W)
-                        keyWPressed = false;
-                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::A)
-                        keyAPressed = false;
-                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::S)
-                        keySPressed = false;
-                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::D)
-                        keyDPressed = false;
-                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::LShift)
-                        keyLeftShiftPressed = false;
-                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::RShift)
-                        keyRightShiftPressed = false;
-                    else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::Space)
-                        keySpacePressed = false;
-                }
-                if(auto mouseMove = dynamic_cast<const ui::event::MouseMove *>(&event))
-                {
-                    float outputMMPerPixel = graphics::Driver::get().getOutputMMPerPixel();
-                    float scale = outputMMPerPixel / 50.0f;
-                    deltaViewTheta -= static_cast<float>(mouseMove->dx) * scale;
-                    deltaViewPhi -= static_cast<float>(mouseMove->dy) * scale;
-                }
-            });
+                    if(auto keyUp = dynamic_cast<const ui::event::KeyUp *>(&event))
+                    {
+                        if(keyUp->physicalCode == ui::event::PhysicalKeyCode::W)
+                            keyWPressed = false;
+                        else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::A)
+                            keyAPressed = false;
+                        else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::S)
+                            keySPressed = false;
+                        else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::D)
+                            keyDPressed = false;
+                        else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::LShift)
+                            keyLeftShiftPressed = false;
+                        else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::RShift)
+                            keyRightShiftPressed = false;
+                        else if(keyUp->physicalCode == ui::event::PhysicalKeyCode::Space)
+                            keySpacePressed = false;
+                    }
+                    if(auto mouseMove = dynamic_cast<const ui::event::MouseMove *>(&event))
+                    {
+                        float outputMMPerPixel = graphics::Driver::get().getOutputMMPerPixel();
+                        float scale = outputMMPerPixel / 50.0f;
+                        deltaViewTheta -= static_cast<float>(mouseMove->dx) * scale;
+                        deltaViewPhi -= static_cast<float>(mouseMove->dy) * scale;
+                    }
+                }));
     }
     catch(QuitException &)
     {

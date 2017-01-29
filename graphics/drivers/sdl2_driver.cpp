@@ -1374,23 +1374,23 @@ struct SDL2Driver::RunningState final
                 if(commandBuffer)
                 {
                     didRender = true;
-                    driver.runOnMainThread([&]()
+                    driver.runOnMainThread(util::FunctionReference<void()>([&]()
                                            {
                                                driver.renderFrame(std::move(commandBuffer));
-                                           });
+                                           }));
                 }
                 SDL_Event event;
                 while(true)
                 {
                     bool gotEvent = false;
-                    driver.runOnMainThread([&]()
+                    driver.runOnMainThread(util::FunctionReference<void()>([&]()
                                            {
                                                if(didRender)
                                                    gotEvent = SDL_PollEvent(&event);
                                                else
                                                    gotEvent = SDL_WaitEventTimeout(&event, 250);
                                                updateWindowSize();
-                                           });
+                                           }));
                     if(!gotEvent)
                         break;
                     if(!isFilteredEvent(event))
@@ -1613,10 +1613,10 @@ float SDL2Driver::getOutputMMPerPixel() const noexcept
 void SDL2Driver::setRelativeMouseMode(bool enabled)
 {
     constexprAssert(runningState);
-    runOnMainThread([enabled]()
+    runOnMainThread(util::FunctionReference<void()>([enabled]()
                     {
                         SDL_SetRelativeMouseMode(enabled ? SDL_TRUE : SDL_FALSE);
-                    });
+                    }));
 }
 }
 }
