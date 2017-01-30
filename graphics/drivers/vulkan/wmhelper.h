@@ -25,6 +25,7 @@
 #include "../sdl2_driver.h"
 #include "SDL_syswm.h"
 #include "vulkan_system_headers.h"
+#include "vulkan_instance.h"
 
 namespace programmerjake
 {
@@ -43,11 +44,31 @@ struct WMHelper
     explicit WMHelper(SDL_SYSWM_TYPE syswmType) : syswmType(syswmType)
     {
     }
-    virtual void addEnabledInstanceExtensions(std::vector<const char *> &extensions) const = 0;
+    virtual const char *getWMExtensionName() const noexcept = 0;
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        Implementation *implementation,
-        const std::shared_ptr<const VkInstance> &instance,
+        std::shared_ptr<const VulkanInstance> vulkanInstance,
         const SDL_SysWMinfo &wmInfo) const = 0;
+};
+class WMHelpers final
+{
+private:
+    const WMHelper *const *front;
+    const WMHelper *const *back;
+
+public:
+    WMHelpers() noexcept;
+    std::size_t size() const
+    {
+        return back - front;
+    }
+    const WMHelper *const *begin() const
+    {
+        return front;
+    }
+    const WMHelper *const *end() const
+    {
+        return back;
+    }
 };
 }
 }

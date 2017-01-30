@@ -26,6 +26,13 @@
 #define VK_USE_PLATFORM_ANDROID_KHR
 #elif defined(__linux__)
 #define VK_USE_PLATFORM_XCB_KHR
+#define VK_USE_PLATFORM_XLIB_KHR
+#if 0
+#warning we need to modify SDL to not create an EGLSurface; enable Mir and Wayland after SDL is fixed
+#else
+#define VK_USE_PLATFORM_MIR_KHR
+#define VK_USE_PLATFORM_WAYLAND_KHR
+#endif
 #include <X11/Xlib-xcb.h>
 #elif defined(_WIN32)
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -36,6 +43,5 @@
 #endif
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
-#include <vulkan/vk_platform.h>
 
 #endif /* GRAPHICS_DRIVERS_VULKAN_VULKAN_SYSTEM_HEADERS_H_ */

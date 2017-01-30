@@ -19,6 +19,7 @@
  *
  */
 #include "vulkan_instance.h"
+#include "wmhelper.h"
 
 namespace programmerjake
 {
@@ -33,6 +34,7 @@ namespace vulkan
 std::shared_ptr<const VulkanInstance> VulkanInstance::make(std::shared_ptr<VulkanFunctions> vk)
 {
     auto retval = std::make_shared<VulkanInstance>();
+
 }
 }
 }

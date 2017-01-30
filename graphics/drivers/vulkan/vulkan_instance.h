@@ -36,11 +36,13 @@ namespace drivers
 {
 namespace vulkan
 {
+struct WMHelper;
 struct VulkanInstance final
 {
     std::shared_ptr<VulkanFunctions> vk;
     VkInstance instance;
     std::vector<VkPhysicalDevice> physicalDevices;
+    const WMHelper *wmHelper;
     static std::shared_ptr<const VulkanInstance> make(std::shared_ptr<VulkanFunctions> vk);
 };
 }
