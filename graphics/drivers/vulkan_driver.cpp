@@ -663,7 +663,6 @@ public:
     struct VulkanRenderBuffer final : public RenderBuffer
     {
 #warning finish
-    private:
         struct TriangleBuffer final
         {
             std::unique_ptr<VulkanTriangle[]> buffer;
@@ -710,8 +709,6 @@ public:
         std::shared_ptr<const VkDevice> device;
         VertexBufferAllocation buffer;
         std::shared_ptr<void *const> mappedBuffer;
-
-    public:
         VulkanRenderBuffer(const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
             : triangleBuffers(), finished(false)
         {
@@ -870,12 +867,39 @@ public:
         std::shared_ptr<const VkDevice> device;
         std::shared_ptr<const VkCommandPool> commandPool;
         std::shared_ptr<const VkCommandBuffer> commandBuffer;
-        std::vector<std::shared_ptr<RenderBuffer>> renderBuffers;
+        std::vector<VertexBufferAllocation> heldVertexBufferAllocations;
+        std::vector<std::shared_ptr<const void>> heldSharedPtrs;
+        std::shared_ptr<Implementation> imp;
+        std::shared_ptr<const VkRenderPass> renderPass;
+        PFN_vkEndCommandBuffer vkEndCommandBuffer;
         bool finished = false;
         bool hasInitialClearColor = false;
         bool hasInitialClearDepth = false;
         bool hasAnyRenderCommands = false;
         ColorF clearColor{};
+        explicit VulkanCommandBuffer(std::shared_ptr<const VkDevice> deviceIn,
+                                     const std::shared_ptr<Implementation> &imp)
+            : device(std::move(deviceIn)), imp(imp), vkEndCommandBuffer(imp->vkEndCommandBuffer)
+        {
+            commandPool =
+                imp->createCommandPool(device, false, false, imp->graphicsQueueFamilyIndex);
+            commandBuffer =
+                imp->allocateCommandBuffer(device, commandPool, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+            VkCommandBufferInheritanceInfo inheritanceInfo{};
+            inheritanceInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+            inheritanceInfo.renderPass = VK_NULL_HANDLE;
+            inheritanceInfo.subpass = 0;
+            inheritanceInfo.framebuffer = VK_NULL_HANDLE;
+            inheritanceInfo.occlusionQueryEnable = VK_FALSE;
+            inheritanceInfo.queryFlags = 0;
+            inheritanceInfo.pipelineStatistics = 0;
+            VkCommandBufferBeginInfo commandBufferBeginInfo{};
+            commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+            commandBufferBeginInfo.pInheritanceInfo = &inheritanceInfo;
+            handleVulkanResult(imp->vkBeginCommandBuffer(*commandBuffer, &commandBufferBeginInfo),
+                               "vkBeginCommandBuffer");
+        }
         virtual void appendClearCommand(bool colorFlag,
                                         bool depthFlag,
                                         const ColorF &backgroundColor) override
@@ -908,15 +932,20 @@ public:
             constexprAssert(!finished);
             if(dynamic_cast<const EmptyRenderBuffer *>(renderBuffer.get()))
                 return;
+            constexprAssert(hasInitialClearColor && hasInitialClearDepth);
+            constexprAssert(dynamic_cast<VulkanRenderBuffer *>(renderBuffer.get()));
+            VulkanRenderBuffer *vulkanRenderBuffer =
+                static_cast<VulkanRenderBuffer *>(renderBuffer.get());
+            constexprAssert(vulkanRenderBuffer->isFinished());
 #warning finish
-            constexprAssert(dynamic_cast<const VulkanRenderBuffer *>(renderBuffer.get()));
-            constexprAssert(
-                static_cast<const VulkanRenderBuffer *>(renderBuffer.get())->isFinished());
-            renderBuffers.push_back(renderBuffer);
+            vulkanRenderBuffer->attachDevice(device, imp);
+            heldVertexBufferAllocations.push_back(vulkanRenderBuffer->buffer);
         }
         virtual void appendPresentCommandAndFinish() override
         {
             constexprAssert(!finished);
+            constexprAssert(hasInitialClearColor && hasInitialClearDepth);
+            handleVulkanResult(vkEndCommandBuffer(*commandBuffer), "vkEndCommandBuffer");
             finished = true;
 #warning finish
         }
@@ -2521,8 +2550,8 @@ public:
         renderPassBeginInfo.clearValueCount = clearValueCount;
         renderPassBeginInfo.pClearValues = &clearValues[0];
         vkCmdSetScissor(*commandBuffer, 0, 1, &renderPassBeginInfo.renderArea);
-        vkCmdBeginRenderPass(*commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(*commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *renderPipeline);
+        vkCmdBeginRenderPass(*commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         frame.addObject(renderPipeline);
         MemoryRenderBuffer renderBuffer;
         Texture texture(TextureId{});
@@ -2682,7 +2711,8 @@ std::shared_ptr<RenderBuffer> VulkanDriver::makeBuffer(
 std::shared_ptr<CommandBuffer> VulkanDriver::makeCommandBuffer()
 {
 #warning finish
-    return std::make_shared<Implementation::VulkanCommandBuffer>();
+    return std::make_shared<Implementation::VulkanCommandBuffer>(implementation->atomicDevice.get(),
+                                                                 implementation);
 }
 
 void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
