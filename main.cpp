@@ -28,7 +28,6 @@
 #include "block/builtin/air.h"
 #include "graphics/drivers/null_driver.h"
 #include "graphics/drivers/opengl_1_driver.h"
-#include "graphics/drivers/vulkan_driver.h"
 #include "block/builtin/bedrock.h"
 #include "block/builtin/stone.h"
 #include "block/builtin/glowstone.h"
@@ -42,6 +41,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <unordered_map>
+#include "graphics/drivers/vulkan/vulkan_driver.h"
 
 namespace programmerjake
 {

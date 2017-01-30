@@ -18,13 +18,12 @@
  * MA 02110-1301, USA.
  *
  */
-#include "vulkan_driver.h"
+#include "vulkan/vulkan_driver.h"
 #if 0
 #warning finish VulkanDriver
 #else
 #include "../../logging/logging.h"
-#include <cassert>
-#include <cstdlib>
+#include "../../util/constexpr_assert.h"
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -33,20 +32,8 @@
 #include <sstream>
 #include <cstdint>
 #include <utility>
-#include <mutex>
-#include <deque>
-#include <queue>
-#include <tuple>
-#include <chrono>
-#include <cmath>
-#include <unordered_map>
-#include <map>
-#include <set>
-#include <list>
-#include <unordered_set>
 #include "../../util/atomic_shared_ptr.h"
 #include "../../util/memory_manager.h"
-#include "../shape/cube.h"
 #include <type_traits>
 #include "SDL_syswm.h"
 #if defined(__ANDROID__)
@@ -71,27 +58,16 @@ namespace graphics
 {
 namespace drivers
 {
+namespace vulkan
+{
 namespace
 {
-#include "vulkan.vert.h"
-#include "vulkan.frag.h"
+#include "vulkan/vulkan.vert.h"
+#include "vulkan/vulkan.frag.h"
 }
 struct VulkanDriver::Implementation final
 {
 public:
-    struct WMHelper
-    {
-        virtual ~WMHelper() = default;
-        SDL_SYSWM_TYPE syswmType;
-        explicit WMHelper(SDL_SYSWM_TYPE syswmType) : syswmType(syswmType)
-        {
-        }
-        virtual void addEnabledInstanceExtensions(std::vector<const char *> &extensions) const = 0;
-        virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-            Implementation *implementation,
-            const std::shared_ptr<const VkInstance> &instance,
-            const SDL_SysWMinfo &wmInfo) const = 0;
-    };
     class Buffer final
     {
         Buffer(const Buffer &) = delete;
@@ -2718,6 +2694,7 @@ std::shared_ptr<CommandBuffer> VulkanDriver::makeCommandBuffer()
 void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
 {
 #warning finish
+}
 }
 }
 }

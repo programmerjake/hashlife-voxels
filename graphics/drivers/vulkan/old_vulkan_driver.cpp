@@ -22,7 +22,7 @@
 #if 1
 #warning finish VulkanDriver
 #else
-#include "../../logging/logging.h"
+#include "../../../logging/logging.h"
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
@@ -44,11 +44,12 @@
 #include <set>
 #include <list>
 #include <unordered_set>
-#include "../../util/atomic_shared_ptr.h"
-#include "../../util/memory_manager.h"
-#include "../shape/cube.h"
+#include "../../../util/atomic_shared_ptr.h"
+#include "../../../util/memory_manager.h"
+#include "../../shape/cube.h"
+#include "../../../util/constexpr_assert.h"
 #include <type_traits>
-#include "SDL_syswm.h"
+#include <SDL_syswm.h>
 #if defined(__ANDROID__)
 #define VK_USE_PLATFORM_ANDROID_KHR
 #elif defined(__linux__)
@@ -70,6 +71,8 @@ namespace voxels
 namespace graphics
 {
 namespace drivers
+{
+namespace vulkan
 {
 namespace
 {
@@ -2718,6 +2721,7 @@ std::shared_ptr<CommandBuffer> VulkanDriver::makeCommandBuffer()
 void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
 {
 #warning finish
+}
 }
 }
 }

@@ -19,11 +19,10 @@
  *
  */
 
-#ifndef GRAPHICS_DRIVERS_VULKAN_DRIVER_H_
-#define GRAPHICS_DRIVERS_VULKAN_DRIVER_H_
+#ifndef GRAPHICS_DRIVERS_VULKAN_VULKAN_DRIVER_H_
+#define GRAPHICS_DRIVERS_VULKAN_VULKAN_DRIVER_H_
 
-#include "sdl2_driver.h"
-#include "../../util/constexpr_assert.h"
+#include "../sdl2_driver.h"
 #include <memory>
 
 namespace programmerjake
@@ -33,6 +32,8 @@ namespace voxels
 namespace graphics
 {
 namespace drivers
+{
+namespace vulkan
 {
 class VulkanDriver final : public SDL2Driver
 {
@@ -68,8 +69,10 @@ public:
     }
 };
 }
+using vulkan::VulkanDriver;
+}
 }
 }
 }
 
-#endif /* GRAPHICS_DRIVERS_VULKAN_DRIVER_H_ */
+#endif /* GRAPHICS_DRIVERS_VULKAN_VULKAN_DRIVER_H_ */

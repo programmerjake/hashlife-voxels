@@ -18,7 +18,7 @@
  * MA 02110-1301, USA.
  *
  */
-#include "vulkan_driver.h"
+#include "vulkan/vulkan_driver.h"
 #if 1
 #warning finish VulkanDriver
 #else
@@ -71,10 +71,12 @@ namespace graphics
 {
 namespace drivers
 {
+namespace vulkan
+{
 namespace
 {
-#include "vulkan.vert.h"
-#include "vulkan.frag.h"
+#include "vulkan/vulkan.vert.h"
+#include "vulkan/vulkan.frag.h"
 }
 struct VulkanDriver::Implementation final
 {
@@ -2731,6 +2733,7 @@ std::shared_ptr<CommandBuffer> VulkanDriver::makeCommandBuffer()
 void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
 {
 #warning finish
+}
 }
 }
 }
