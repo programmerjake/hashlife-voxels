@@ -24,6 +24,7 @@
 
 #include "vulkan_functions.h"
 #include "vulkan_error.h"
+#include "../sdl2_driver.h"
 #include <vector>
 
 namespace programmerjake
@@ -39,11 +40,27 @@ namespace vulkan
 struct WMHelper;
 struct VulkanInstance final
 {
+private:
+    struct PrivateAccess final
+    {
+        friend struct VulkanInstance;
+
+    private:
+        PrivateAccess() = default;
+    };
+
+public:
     std::shared_ptr<VulkanFunctions> vk;
     VkInstance instance;
+    bool instanceGood;
     std::vector<VkPhysicalDevice> physicalDevices;
     const WMHelper *wmHelper;
-    static std::shared_ptr<const VulkanInstance> make(std::shared_ptr<VulkanFunctions> vk);
+    ~VulkanInstance();
+    explicit VulkanInstance(std::shared_ptr<VulkanFunctions> vulkanFunctions,
+                            const WMHelper *wmHelper,
+                            PrivateAccess);
+    static std::shared_ptr<const VulkanInstance> make(std::shared_ptr<VulkanFunctions> vk,
+                                                      SDL_Window *window);
 };
 }
 }

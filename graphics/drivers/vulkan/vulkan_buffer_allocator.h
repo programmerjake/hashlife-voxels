@@ -40,8 +40,30 @@ class VulkanBufferAllocator final
 private:
     struct BaseAllocator final
     {
+        const std::shared_ptr<const VulkanFunctions> vk;
+        typedef VkDeviceSize SizeType;
+        struct Allocation final
+        {
+            const std::shared_ptr<const VulkanFunctions> vk;
+            explicit Allocation(std::shared_ptr<const VulkanFunctions> vk) noexcept : vk(std::move(vk))
+            {
+            }
+            ~Allocation()
+            {
+
+            }
+        };
+        typedef Allocation *BaseType;
+        void free(BaseType block) noexcept
+        {
+            delete block;
+        }
+        BaseType allocate(SizeType blockSize)
+        {
+        }
     };
-    typedef util::MemoryManager<BaseAllocator, static_cast<std::uint64_t>(1) << 20 /* 1MB */>;
+    typedef util::MemoryManager<BaseAllocator, static_cast<std::uint64_t>(1) << 20 /* 1MB */>
+        BaseMemoryManager;
 
 public:
 };

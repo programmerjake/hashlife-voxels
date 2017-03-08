@@ -2649,6 +2649,9 @@ SDL_Window *VulkanDriver::createWindow(int x, int y, int w, int h, std::uint32_t
 {
     if(!implementation->vulkanLoader)
         implementation->loadLoader();
+#ifdef USE_PLATFORM_SDL_VULKAN
+    flags |= SDL_WINDOW_VULKAN;
+#endif
     auto window = SDL_CreateWindow(getTitle().c_str(), x, y, w, h, flags);
     if(window)
         return window;

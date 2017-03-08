@@ -40,8 +40,13 @@ VulkanFunctions::VulkanFunctions(std::shared_ptr<void> vulkanLibraryIn, PrivateA
     : vulkanLibrary(std::move(vulkanLibraryIn)), GetInstanceProcAddr()
 {
     assert(vulkanLibrary);
+#ifdef USE_PLATFORM_SDL_VULKAN
+    GetInstanceProcAddr =
+        reinterpret_cast<PFN_vkGetInstanceProcAddr>(SDL_Vulkan_GetVkGetInstanceProcAddr());
+#else
     GetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
         SDL_LoadFunction(vulkanLibrary.get(), "vkGetInstanceProcAddr"));
+#endif
     if(!GetInstanceProcAddr)
         throw std::runtime_error("invalid vulkan loader: vkGetInstanceProcAddr not found");
     loadGlobalFunctions();
@@ -49,6 +54,26 @@ VulkanFunctions::VulkanFunctions(std::shared_ptr<void> vulkanLibraryIn, PrivateA
 
 std::shared_ptr<VulkanFunctions> VulkanFunctions::loadVulkanLibrary()
 {
+#ifdef USE_PLATFORM_SDL_VULKAN
+    SDL2Driver::initSDL();
+    struct VulkanLibrary final
+    {
+        VulkanLibrary(const VulkanLibrary &) = delete;
+        VulkanLibrary &operator=(const VulkanLibrary &) = delete;
+        VulkanLibrary()
+        {
+            if(SDL_Vulkan_LoadLibrary(nullptr) != 0)
+                throw std::runtime_error(std::string("SDL_Vulkan_LoadLibrary failed: ")
+                                         + SDL_GetError());
+        }
+        ~VulkanLibrary()
+        {
+            SDL_Vulkan_UnloadLibrary();
+        }
+    };
+    auto vulkanLibrary = std::make_shared<VulkanLibrary>();
+    return std::make_shared<VulkanFunctions>(std::move(vulkanLibrary), PrivateAccess());
+#else
 #if defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) \
     || defined(VK_USE_PLATFORM_MIR_KHR) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
     const char *vulkanLoaderLibraryName = "libvulkan.so.1";
@@ -69,6 +94,7 @@ std::shared_ptr<VulkanFunctions> VulkanFunctions::loadVulkanLibrary()
         throw std::runtime_error(std::string("can't load vulkan loader: ")
                                  + vulkanLoaderLibraryName);
     return std::make_shared<VulkanFunctions>(std::move(vulkanLibrary), PrivateAccess());
+#endif
 }
 }
 }

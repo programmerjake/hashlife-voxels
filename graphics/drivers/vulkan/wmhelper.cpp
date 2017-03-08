@@ -20,6 +20,11 @@
  */
 #include "wmhelper.h"
 #include "vulkan_object.h"
+#ifndef USE_PLATFORM_SDL_VULKAN
+#include "SDL_syswm.h"
+#endif
+#include <type_traits>
+#include <string>
 
 namespace programmerjake
 {
@@ -52,20 +57,77 @@ struct SurfaceHolder final
     }
 };
 
+#ifdef USE_PLATFORM_SDL_VULKAN
+struct WMHelperSDLVulkan final : public WMHelper
+{
+    virtual bool isUsableWithWindow(SDL_Window *window) const override
+    {
+        return SDL_GetWindowFlags(window) & SDL_WINDOW_VULKAN;
+    }
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const override
+    {
+        std::vector<const char *> names;
+        unsigned extensionCount;
+        if(!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, nullptr))
+            throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ")
+                                     + SDL_GetError());
+        names.resize(extensionCount);
+        if(!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, names.data()))
+            throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ")
+                                     + SDL_GetError());
+        std::string surfaceExtensionName = VK_KHR_SURFACE_EXTENSION_NAME;
+        for(auto i = names.begin(); i != names.end(); ++i)
+        {
+            if(surfaceExtensionName == *i)
+            {
+                names.erase(i); // erase surface extension name here so we don't request it twice
+                break;
+            }
+        }
+        return names;
+    }
+    virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
+        std::shared_ptr<const VulkanInstance> vulkanInstanceIn, SDL_Window *window) const override
+    {
+        auto holder = std::make_shared<SurfaceHolder>(vulkanInstanceIn);
+        if(!SDL_Vulkan_CreateSurface(
+               window,
+               static_cast<SDL_vulkanInstance>(holder->vulkanInstance->instance),
+               reinterpret_cast<SDL_vulkanSurface *>(&holder->surface)))
+            throw std::runtime_error(std::string("SDL_Vulkan_CreateSurface failed: ")
+                                     + SDL_GetError());
+        holder->valid = true;
+        return std::shared_ptr<const VkSurfaceKHR>(holder, &holder->surface);
+    }
+};
+#else
+void getWindowWMInfo(SDL_Window *window, SDL_SysWMinfo &wmInfo)
+{
+    wmInfo = {};
+    SDL_VERSION(&wmInfo.version);
+    if(!SDL_GetWindowWMInfo(window, &wmInfo))
+        throw std::runtime_error(std::string("SDL_GetWindowWMInfo failed: ") + SDL_GetError());
+}
+#endif
+
 #ifdef VK_USE_PLATFORM_XLIB_KHR
 struct WMHelperXLib final : public WMHelper
 {
-    WMHelperXLib() : WMHelper(SDL_SYSWM_TYPE::SDL_SYSWM_X11)
+    virtual bool isUsableWithWindow(SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
+        return wmInfo.subsystem == SDL_SYSWM_TYPE::SDL_SYSWM_X11;
     }
-    virtual const char *getWMExtensionName() const noexcept override
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const override
     {
-        return VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+        return {VK_KHR_XLIB_SURFACE_EXTENSION_NAME};
     }
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        std::shared_ptr<const VulkanInstance> vulkanInstanceIn,
-        const SDL_SysWMinfo &wmInfo) const override
+        std::shared_ptr<const VulkanInstance> vulkanInstanceIn, SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
         auto holder = std::make_shared<SurfaceHolder>(vulkanInstanceIn);
         PFN_vkCreateXlibSurfaceKHR vkCreateXlibSurfaceKHR = nullptr;
         holder->vk->loadInstanceFunction(
@@ -86,17 +148,21 @@ struct WMHelperXLib final : public WMHelper
 #ifdef VK_USE_PLATFORM_XCB_KHR
 struct WMHelperXCB final : public WMHelper
 {
-    WMHelperXCB() : WMHelper(SDL_SYSWM_TYPE::SDL_SYSWM_X11)
+    virtual bool isUsableWithWindow(SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
+        return wmInfo.subsystem == SDL_SYSWM_TYPE::SDL_SYSWM_X11;
     }
-    virtual const char *getWMExtensionName() const noexcept override
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const override
     {
-        return VK_KHR_XCB_SURFACE_EXTENSION_NAME;
+        return {VK_KHR_XCB_SURFACE_EXTENSION_NAME};
     }
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        std::shared_ptr<const VulkanInstance> vulkanInstanceIn,
-        const SDL_SysWMinfo &wmInfo) const override
+        std::shared_ptr<const VulkanInstance> vulkanInstanceIn, SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
         struct Holder final
         {
             SurfaceHolder surfaceHolder;
@@ -143,17 +209,21 @@ struct WMHelperXCB final : public WMHelper
 #error we need to modify SDL to not create an EGLSurface
 struct WMHelperWayland final : public WMHelper
 {
-    WMHelperWayland() : WMHelper(SDL_SYSWM_TYPE::SDL_SYSWM_WAYLAND)
+    virtual bool isUsableWithWindow(SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
+        return wmInfo.subsystem == SDL_SYSWM_TYPE::SDL_SYSWM_WAYLAND;
     }
-    virtual const char *getWMExtensionName() const noexcept override
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const override
     {
-        return VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+        return {VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME};
     }
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        std::shared_ptr<const VulkanInstance> vulkanInstanceIn,
-        const SDL_SysWMinfo &wmInfo) const override
+        std::shared_ptr<const VulkanInstance> vulkanInstanceIn, SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
         auto holder = std::make_shared<SurfaceHolder>(vulkanInstanceIn);
         PFN_vkCreateWaylandSurfaceKHR vkCreateWaylandSurfaceKHR = nullptr;
         holder->vk->loadInstanceFunction(vkCreateWaylandSurfaceKHR,
@@ -176,17 +246,21 @@ struct WMHelperWayland final : public WMHelper
 #error we need to modify SDL to not create an EGLSurface
 struct WMHelperMir final : public WMHelper
 {
-    WMHelperMir() : WMHelper(SDL_SYSWM_TYPE::SDL_SYSWM_MIR)
+    virtual bool isUsableWithWindow(SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
+        return wmInfo.subsystem == SDL_SYSWM_TYPE::SDL_SYSWM_MIR;
     }
-    virtual const char *getWMExtensionName() const noexcept override
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const override
     {
-        return VK_KHR_MIR_SURFACE_EXTENSION_NAME;
+        return {VK_KHR_MIR_SURFACE_EXTENSION_NAME};
     }
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        std::shared_ptr<const VulkanInstance> vulkanInstanceIn,
-        const SDL_SysWMinfo &wmInfo) const override
+        std::shared_ptr<const VulkanInstance> vulkanInstanceIn, SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
         auto holder = std::make_shared<SurfaceHolder>(vulkanInstanceIn);
         PFN_vkCreateMirSurfaceKHR vkCreateMirSurfaceKHR = nullptr;
         holder->vk->loadInstanceFunction(
@@ -209,17 +283,21 @@ struct WMHelperMir final : public WMHelper
 #error we need to modify SDL to not create an EGLSurface
 struct WMHelperAndroid final : public WMHelper
 {
-    WMHelperAndroid() : WMHelper(SDL_SYSWM_TYPE::SDL_SYSWM_ANDROID)
+    virtual bool isUsableWithWindow(SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
+        return wmInfo.subsystem == SDL_SYSWM_TYPE::SDL_SYSWM_ANDROID;
     }
-    virtual const char *getWMExtensionName() const noexcept override
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const override
     {
-        return VK_KHR_MIR_SURFACE_EXTENSION_NAME;
+        return {VK_KHR_MIR_SURFACE_EXTENSION_NAME};
     }
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        std::shared_ptr<const VulkanInstance> vulkanInstanceIn,
-        const SDL_SysWMinfo &wmInfo) const override
+        std::shared_ptr<const VulkanInstance> vulkanInstanceIn, SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
         auto holder = std::make_shared<SurfaceHolder>(vulkanInstanceIn);
         PFN_vkCreateMirSurfaceKHR vkCreateMirSurfaceKHR = nullptr;
         holder->vk->loadInstanceFunction(
@@ -240,17 +318,21 @@ struct WMHelperAndroid final : public WMHelper
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 struct WMHelperWin32 final : public WMHelper
 {
-    WMHelperWin32() : WMHelper(SDL_SYSWM_TYPE::SDL_SYSWM_WINDOWS)
+    virtual bool isUsableWithWindow(SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
+        return wmInfo.subsystem == SDL_SYSWM_TYPE::SDL_SYSWM_WINDOWS;
     }
-    virtual const char *getWMExtensionName() const noexcept override
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const override
     {
-        return VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
+        return {VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
     }
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        const std::shared_ptr<const VulkanInstance> &vulkanInstanceIn,
-        const SDL_SysWMinfo &wmInfo) const override
+        std::shared_ptr<const VulkanInstance> vulkanInstanceIn, SDL_Window *window) const override
     {
+        SDL_SysWMinfo wmInfo;
+        getWindowWMInfo(window, wmInfo);
         auto holder = std::make_shared<SurfaceHolder>(vulkanInstanceIn);
         PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR = nullptr;
         holder->vk->loadInstanceFunction(
@@ -271,6 +353,9 @@ struct WMHelperWin32 final : public WMHelper
 }
 WMHelpers::WMHelpers() noexcept
 {
+#ifdef USE_PLATFORM_SDL_VULKAN
+    static const WMHelperSDLVulkan helperSDLVulkan;
+#endif
 #ifdef VK_USE_PLATFORM_XLIB_KHR
     static const WMHelperXLib helperXLib;
 #endif
@@ -283,18 +368,15 @@ WMHelpers::WMHelpers() noexcept
 #ifdef VK_USE_PLATFORM_MIR_KHR
     static const WMHelperMir helperMir;
 #endif
-#ifdef VK_USE_PLATFORM_XCB_KHR
-    static const WMHelperXCB helperXCB;
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    static const WMHelperAndroid helperAndroid;
 #endif
 #ifdef VK_USE_PLATFORM_WIN32_KHR
     static const WMHelperWin32 helperWin32;
 #endif
     static const WMHelper *const helpers[] = {
-#ifdef VK_USE_PLATFORM_XLIB_KHR
-        &helperXLib, // XLib before XCB so we don't require XLib XCB interop to use Vulkan
-#endif
-#ifdef VK_USE_PLATFORM_XCB_KHR
-        &helperXCB,
+#ifdef USE_PLATFORM_SDL_VULKAN
+        &helperSDLVulkan,
 #endif
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
         &helperWayland,
@@ -302,12 +384,21 @@ WMHelpers::WMHelpers() noexcept
 #ifdef VK_USE_PLATFORM_MIR_KHR
         &helperMir,
 #endif
+#ifdef VK_USE_PLATFORM_XLIB_KHR
+        &helperXLib, // XLib before XCB so we don't require XLib XCB interop to use Vulkan
+#endif
+#ifdef VK_USE_PLATFORM_XCB_KHR
+        &helperXCB,
+#endif
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+        &helperAndroid,
+#endif
 #ifdef VK_USE_PLATFORM_WIN32_KHR
         &helperWin32,
 #endif
     };
     front = &helpers[0];
-    back = &helpers[sizeof(helpers) / sizeof(helpers[0])];
+    back = front + sizeof(helpers) / sizeof(helpers[0]);
 }
 }
 }

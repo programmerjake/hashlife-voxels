@@ -23,9 +23,9 @@
 #define GRAPHICS_DRIVERS_VULKAN_WMHELPER_H_
 
 #include "../sdl2_driver.h"
-#include "SDL_syswm.h"
 #include "vulkan_system_headers.h"
 #include "vulkan_instance.h"
+#include <vector>
 
 namespace programmerjake
 {
@@ -40,14 +40,11 @@ namespace vulkan
 struct WMHelper
 {
     virtual ~WMHelper() = default;
-    SDL_SYSWM_TYPE syswmType;
-    explicit WMHelper(SDL_SYSWM_TYPE syswmType) : syswmType(syswmType)
-    {
-    }
-    virtual const char *getWMExtensionName() const noexcept = 0;
+    WMHelper() = default;
+    virtual bool isUsableWithWindow(SDL_Window *window) const = 0;
+    virtual std::vector<const char *> getWMExtensionNames(SDL_Window *window) const = 0;
     virtual std::shared_ptr<const VkSurfaceKHR> createSurface(
-        std::shared_ptr<const VulkanInstance> vulkanInstance,
-        const SDL_SysWMinfo &wmInfo) const = 0;
+        std::shared_ptr<const VulkanInstance> vulkanInstance, SDL_Window *window) const = 0;
 };
 class WMHelpers final
 {

@@ -24,6 +24,7 @@
 
 #include "vulkan_system_headers.h"
 #include <cassert>
+#include <memory>
 
 namespace programmerjake
 {
