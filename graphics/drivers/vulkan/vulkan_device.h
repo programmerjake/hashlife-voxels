@@ -24,6 +24,8 @@
 
 #include "vulkan_instance.h"
 #include <cstdint>
+#include <utility>
+#include <memory>
 
 namespace programmerjake
 {
@@ -37,6 +39,9 @@ namespace vulkan
 {
 struct VulkanDevice final
 {
+    VulkanDevice(const VulkanDevice &) = delete;
+    VulkanDevice &operator=(const VulkanDevice &) = delete;
+
 private:
     struct PrivateAccess final
     {
@@ -60,6 +65,17 @@ public:
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     std::uint32_t presentQueueFamilyIndex{};
     VkQueue presentQueue = VK_NULL_HANDLE;
+    std::pair<std::uint32_t, bool> findMemoryType(std::uint32_t memoryTypeBits,
+                                                  VkMemoryPropertyFlags requiredProperties) const
+        noexcept
+    {
+        for(std::uint32_t i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; i++)
+            if(memoryTypeBits & (static_cast<std::uint32_t>(1) << i))
+                if((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags
+                    & requiredProperties) == requiredProperties)
+                    return {i, true};
+        return {0, false};
+    }
     ~VulkanDevice();
     explicit VulkanDevice(std::shared_ptr<const VulkanInstance> instance,
                           std::shared_ptr<const VkSurfaceKHR> surface,

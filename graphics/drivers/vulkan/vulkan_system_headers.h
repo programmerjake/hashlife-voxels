@@ -48,6 +48,8 @@ extern "C" SDL_bool SDL_Vulkan_CreateSurface(SDL_Window *window, SDL_vulkanInsta
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #endif
 #include <X11/Xlib-xcb.h>
+// remove conflicting macros
+#undef None
 #endif
 #elif defined(_WIN32)
 #ifndef USE_PLATFORM_SDL_VULKAN

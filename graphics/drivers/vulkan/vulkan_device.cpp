@@ -45,13 +45,14 @@ VulkanDevice::VulkanDevice(std::shared_ptr<const VulkanInstance> instance,
 VulkanDevice::~VulkanDevice()
 {
     if(vk->DestroyDevice && deviceGood)
-        vk->DestroyDevice(device);
+        vk->DestroyDevice(device, nullptr);
 }
 
 std::shared_ptr<const VulkanDevice> VulkanDevice::make(
     std::shared_ptr<const VulkanInstance> instance, std::shared_ptr<const VkSurfaceKHR> surface)
 {
     auto retval = std::make_shared<VulkanDevice>(instance, surface, PrivateAccess());
+    auto &vk = retval->vk;
     const std::string swapchainExtensionName = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     std::vector<VkExtensionProperties> deviceExtensions;
     for(VkPhysicalDevice physicalDevice : instance->physicalDevices)
@@ -117,17 +118,17 @@ std::shared_ptr<const VulkanDevice> VulkanDevice::make(
         static const float queuePriority[] = {1.0f};
         VkDeviceQueueCreateInfo deviceQueueCreateInfo[2] = {};
         deviceQueueCreateInfo[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        deviceQueueCreateInfo[0].queueFamilyIndex = graphicsQueueFamilyIndex;
+        deviceQueueCreateInfo[0].queueFamilyIndex = retval->graphicsQueueFamilyIndex;
         deviceQueueCreateInfo[0].queueCount = 1;
         deviceQueueCreateInfo[0].pQueuePriorities = &queuePriority[0];
         deviceQueueCreateInfo[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        deviceQueueCreateInfo[1].queueFamilyIndex = presentQueueFamilyIndex;
+        deviceQueueCreateInfo[1].queueFamilyIndex = retval->presentQueueFamilyIndex;
         deviceQueueCreateInfo[1].queueCount = 1;
         deviceQueueCreateInfo[1].pQueuePriorities = &queuePriority[0];
         VkDeviceCreateInfo deviceCreateInfo{};
         deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         deviceCreateInfo.queueCreateInfoCount =
-            graphicsQueueFamilyIndex == presentQueueFamilyIndex ? 1 : 2;
+            retval->graphicsQueueFamilyIndex == retval->presentQueueFamilyIndex ? 1 : 2;
         deviceCreateInfo.pQueueCreateInfos = deviceQueueCreateInfo;
         deviceCreateInfo.pEnabledFeatures = nullptr;
         static const char *const deviceExtensionNames[] = {

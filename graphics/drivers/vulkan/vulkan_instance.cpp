@@ -34,7 +34,7 @@ namespace vulkan
 VulkanInstance::~VulkanInstance()
 {
     if(vk->DestroyInstance && instanceGood)
-        vk->DestroyInstance(instance);
+        vk->DestroyInstance(instance, nullptr);
 }
 
 VulkanInstance::VulkanInstance(std::shared_ptr<VulkanFunctions> vulkanFunctions,
@@ -64,7 +64,8 @@ const WMHelper *findWorkingWMHelper(SDL_Window *window)
 std::shared_ptr<const VulkanInstance> VulkanInstance::make(std::shared_ptr<VulkanFunctions> vk,
                                                            SDL_Window *window)
 {
-    auto retval = std::make_shared<VulkanInstance>(vk, findWorkingWMHelper(window), PrivateAccess());
+    auto retval =
+        std::make_shared<VulkanInstance>(vk, findWorkingWMHelper(window), PrivateAccess());
     VkApplicationInfo appInfo = {};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.apiVersion = VK_API_VERSION_1_0;
@@ -87,13 +88,14 @@ std::shared_ptr<const VulkanInstance> VulkanInstance::make(std::shared_ptr<Vulka
     retval->instanceGood = true;
     vk->loadInstanceFunctions(retval->instance);
     std::uint32_t physicalDeviceCount = 0;
-    handleVulkanResult(vk->EnumeratePhysicalDevices(*instance, &physicalDeviceCount, nullptr),
-                       "vkEnumeratePhysicalDevices");
+    handleVulkanResult(
+        vk->EnumeratePhysicalDevices(retval->instance, &physicalDeviceCount, nullptr),
+        "vkEnumeratePhysicalDevices");
     if(physicalDeviceCount == 0)
         throw std::runtime_error("Vulkan: no physical devices");
     retval->physicalDevices.resize(physicalDeviceCount);
     handleVulkanResult(vk->EnumeratePhysicalDevices(
-                           *instance, &physicalDeviceCount, retval->physicalDevices.data()),
+                           retval->instance, &physicalDeviceCount, retval->physicalDevices.data()),
                        "vkEnumeratePhysicalDevices");
     assert(retval->physicalDevices.size() == physicalDeviceCount);
     return retval;

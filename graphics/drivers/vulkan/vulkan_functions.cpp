@@ -84,7 +84,7 @@ std::shared_ptr<VulkanFunctions> VulkanFunctions::loadVulkanLibrary()
 #else
 #error finish
 #endif
-    vulkanLibrary = std::shared_ptr<void>(SDL_LoadObject(vulkanLoaderLibraryName),
+    auto vulkanLibrary = std::shared_ptr<void>(SDL_LoadObject(vulkanLoaderLibraryName),
                                           [](void *p)
                                           {
                                               if(p)

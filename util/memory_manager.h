@@ -34,6 +34,7 @@
 #include <forward_list>
 #include <mutex>
 #include <type_traits>
+#include <tuple>
 #include "spinlock.h"
 #include "constexpr_assert.h"
 
@@ -56,8 +57,8 @@ namespace util
  * @endcode
  */
 template <typename BaseAllocator,
-          std::uint64_t BigChunkThreshold = static_cast<std::uint64_t>(1) << 12 /* 4k */,
-          std::size_t Alignment = alignof(std::max_align_t),
+          std::uint64_t DefaultBigChunkThreshold = static_cast<std::uint64_t>(1) << 12 /* 4k */,
+          std::size_t DefaultAlignment = alignof(std::max_align_t),
           std::size_t AllocationGranularity = 1>
 class MemoryManager final
 {
@@ -83,9 +84,10 @@ public:
                   "BaseType needs to be nothrow move constructible");
     static_assert(std::is_nothrow_destructible<BaseType>::value,
                   "BaseType needs to be nothrow destructible");
-    static constexpr std::size_t alignment = Alignment;
+    static constexpr std::size_t defaultAlignment = DefaultAlignment;
     static constexpr std::size_t allocationGranularity = AllocationGranularity;
-    static constexpr std::uint64_t bigChunkThreshold = BigChunkThreshold;
+    static constexpr std::uint64_t defaultBigChunkThreshold = DefaultBigChunkThreshold;
+    static constexpr std::uint64_t defaultChunkSize = defaultBigChunkThreshold * 4;
 
 private:
     static constexpr bool isPositivePowerOf2(std::uint64_t v) noexcept
@@ -98,11 +100,12 @@ private:
                 (offset + (newAlignment - 1)) & ~(newAlignment - 1));
     }
     static constexpr std::size_t cachedChunkCount = 2;
-    static constexpr std::uint64_t chunkSize = bigChunkThreshold * 4;
-    static_assert(isPositivePowerOf2(bigChunkThreshold),
-                  "bigChunkThreshold needs to be a positive power of 2");
-    static_assert(isPositivePowerOf2(alignment) && alignment < bigChunkThreshold,
-                  "alignment needs to be a positive power of 2 and less than bigChunkThreshold");
+    static_assert(isPositivePowerOf2(defaultBigChunkThreshold),
+                  "defaultBigChunkThreshold needs to be a positive power of 2");
+    static_assert(isPositivePowerOf2(defaultAlignment)
+                      && defaultAlignment < defaultBigChunkThreshold,
+                  "defaultAlignment needs to be a positive power of 2 and less than "
+                  "defaultBigChunkThreshold");
     static_assert(isPositivePowerOf2(allocationGranularity),
                   "allocationGranularity needs to be a positive power of 2");
     struct PrivateAccess final
@@ -290,13 +293,15 @@ public:
     };
 
 private:
-    BaseAllocator baseAllocator;
-    Spinlock
-        chunksLock; // must not run lock operation while a chunk's lock is held to prevent deadlocks
+    // pair so we can construct from tuples
+    std::pair<BaseAllocator, Spinlock> baseAllocatorAndChunksLock;
+    // must not run lock operation on chunksLock while a chunk's lock is held to prevent deadlocks
     std::list<Chunk> chunks;
     std::list<Chunk> bigChunks;
     std::list<Chunk> freeChunks;
     typename std::list<Chunk>::iterator currentChunk;
+    const SizeType bigChunkThreshold;
+    const SizeType chunkSize;
 
 private:
     void free(Allocation *allocation) noexcept
@@ -308,7 +313,7 @@ private:
         auto subchunkIterator = allocation->subchunkIterator;
         Subchunk &subchunk = *subchunkIterator;
         delete allocation;
-        std::unique_lock<Spinlock> globalLock(chunksLock);
+        std::unique_lock<Spinlock> globalLock(baseAllocatorAndChunksLock.second);
         std::unique_lock<Spinlock> localLock(chunk.chunkLock);
         chunk.usedSize -= subchunk.size;
         if(chunk.usedSize != 0)
@@ -346,7 +351,7 @@ private:
                 BaseType base = std::move(chunk.base);
                 bigChunks.erase(chunkIterator);
                 globalLock.unlock();
-                baseAllocator.free(std::move(base));
+                baseAllocatorAndChunksLock.first.free(std::move(base));
             }
             else
             {
@@ -359,7 +364,7 @@ private:
                     freeChunks.pop_back();
                     localLock.unlock();
                     globalLock.unlock();
-                    baseAllocator.free(std::move(base));
+                    baseAllocatorAndChunksLock.first.free(std::move(base));
                 }
             }
         }
@@ -367,13 +372,26 @@ private:
 
 public:
     template <typename... Args>
-    explicit MemoryManager(Args &&... args)
-        : baseAllocator(std::forward<Args>(args)...),
-          chunksLock(),
+    explicit MemoryManager(std::piecewise_construct_t,
+                           std::tuple<Args...> args,
+                           SizeType bigChunkThreshold = defaultBigChunkThreshold,
+                           SizeType chunkSize = defaultChunkSize)
+        : baseAllocatorAndChunksLock(std::piecewise_construct, args, std::tuple<>()),
           chunks(),
           bigChunks(),
           freeChunks(),
-          currentChunk(chunks.end())
+          currentChunk(chunks.end()),
+          bigChunkThreshold(bigChunkThreshold),
+          chunkSize(chunkSize)
+    {
+        constexprAssert(isPositivePowerOf2(bigChunkThreshold));
+        constexprAssert(isPositivePowerOf2(chunkSize)
+                        && chunkSize < bigChunkThreshold);
+    }
+    template <typename... Args>
+    explicit MemoryManager(Args &&... args)
+        : MemoryManager(std::piecewise_construct,
+                        std::forward_as_tuple(std::forward<Args>(args)...))
     {
     }
     ~MemoryManager()
@@ -382,14 +400,15 @@ public:
         constexprAssert(bigChunks.empty());
         shrink();
     }
-    AllocationReference allocate(SizeType allocationSize)
+    AllocationReference allocate(SizeType allocationSize, SizeType alignment = defaultAlignment)
     {
+        constexprAssert(isPositivePowerOf2(alignment) && alignment < bigChunkThreshold);
         constexprAssert(allocationSize != 0);
         allocationSize = (allocationSize + (allocationGranularity - 1))
                          & ~static_cast<SizeType>(allocationGranularity - 1);
         if(allocationSize >= bigChunkThreshold)
         {
-            BaseType base = baseAllocator.allocate(allocationSize);
+            BaseType base = baseAllocatorAndChunksLock.first.allocate(allocationSize);
             try
             {
                 std::list<Chunk> tempList;
@@ -405,14 +424,14 @@ public:
                 chunk.currentSubchunk = chunk.subchunks.end();
                 std::unique_ptr<Allocation> allocation(
                     new Allocation(chunkIterator, subchunkIterator, allocationSize, 0, 1, this));
-                std::unique_lock<Spinlock> globalLock(chunksLock);
+                std::unique_lock<Spinlock> globalLock(baseAllocatorAndChunksLock.second);
                 bigChunks.splice(bigChunks.end(), tempList);
                 globalLock.unlock();
                 return AllocationReference(allocation.release(), PrivateAccess());
             }
             catch(...)
             {
-                baseAllocator.free(std::move(base));
+                baseAllocatorAndChunksLock.first.free(std::move(base));
                 throw;
             }
         }
@@ -425,7 +444,7 @@ public:
             allocationSize = newSize; // round up to next power of 2
             allocationAlignment = allocationSize;
         }
-        std::unique_lock<Spinlock> globalLock(chunksLock);
+        std::unique_lock<Spinlock> globalLock(baseAllocatorAndChunksLock.second);
         if(!chunks.empty())
         {
             if(currentChunk == chunks.end())
@@ -509,7 +528,7 @@ public:
         }
         if(freeChunks.empty())
         {
-            BaseType base = baseAllocator.allocate(chunkSize);
+            BaseType base = baseAllocatorAndChunksLock.first.allocate(chunkSize);
             try
             {
                 std::list<Chunk> tempList;
@@ -525,7 +544,7 @@ public:
             }
             catch(...)
             {
-                baseAllocator.free(std::move(base));
+                baseAllocatorAndChunksLock.first.free(std::move(base));
                 throw;
             }
         }
@@ -549,22 +568,22 @@ public:
     }
     BaseAllocator &getBaseAllocator() noexcept
     {
-        return baseAllocator;
+        return baseAllocatorAndChunksLock.first;
     }
     const BaseAllocator &getBaseAllocator() const noexcept
     {
-        return baseAllocator;
+        return baseAllocatorAndChunksLock.first;
     }
     void shrink() noexcept
     {
-        std::unique_lock<Spinlock> globalLock(chunksLock);
+        std::unique_lock<Spinlock> globalLock(baseAllocatorAndChunksLock.second);
         std::size_t freeCount = freeChunks.size();
         while(!freeChunks.empty())
         {
             BaseType base = std::move(freeChunks.back().base);
             freeChunks.pop_back();
             globalLock.unlock();
-            baseAllocator.free(std::move(base));
+            baseAllocatorAndChunksLock.first.free(std::move(base));
             if(--freeCount == 0)
                 return;
             globalLock.lock();
@@ -574,40 +593,44 @@ public:
 
 template <typename BaseAllocator,
           std::uint64_t BigChunkThreshold,
-          std::size_t Alignment,
-          std::size_t AllocationGranularity>
-constexpr std::size_t
-    MemoryManager<BaseAllocator, BigChunkThreshold, Alignment, AllocationGranularity>::alignment;
-template <typename BaseAllocator,
-          std::uint64_t BigChunkThreshold,
-          std::size_t Alignment,
+          std::size_t DefaultAlignment,
           std::size_t AllocationGranularity>
 constexpr std::size_t MemoryManager<BaseAllocator,
                                     BigChunkThreshold,
-                                    Alignment,
+                                    DefaultAlignment,
+                                    AllocationGranularity>::defaultAlignment;
+template <typename BaseAllocator,
+          std::uint64_t BigChunkThreshold,
+          std::size_t DefaultAlignment,
+          std::size_t AllocationGranularity>
+constexpr std::size_t MemoryManager<BaseAllocator,
+                                    BigChunkThreshold,
+                                    DefaultAlignment,
                                     AllocationGranularity>::allocationGranularity;
 template <typename BaseAllocator,
           std::uint64_t BigChunkThreshold,
-          std::size_t Alignment,
+          std::size_t DefaultAlignment,
           std::size_t AllocationGranularity>
 constexpr std::uint64_t MemoryManager<BaseAllocator,
                                       BigChunkThreshold,
-                                      Alignment,
+                                      DefaultAlignment,
                                       AllocationGranularity>::bigChunkThreshold;
 template <typename BaseAllocator,
           std::uint64_t BigChunkThreshold,
-          std::size_t Alignment,
+          std::size_t DefaultAlignment,
           std::size_t AllocationGranularity>
 constexpr std::size_t MemoryManager<BaseAllocator,
                                     BigChunkThreshold,
-                                    Alignment,
+                                    DefaultAlignment,
                                     AllocationGranularity>::cachedChunkCount;
 template <typename BaseAllocator,
           std::uint64_t BigChunkThreshold,
-          std::size_t Alignment,
+          std::size_t DefaultAlignment,
           std::size_t AllocationGranularity>
-constexpr std::uint64_t
-    MemoryManager<BaseAllocator, BigChunkThreshold, Alignment, AllocationGranularity>::chunkSize;
+constexpr std::uint64_t MemoryManager<BaseAllocator,
+                                      BigChunkThreshold,
+                                      DefaultAlignment,
+                                      AllocationGranularity>::chunkSize;
 }
 }
 }
