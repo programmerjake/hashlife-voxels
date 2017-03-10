@@ -791,7 +791,7 @@ constexpr ColorU8 grayscaleAU8(std::uint8_t value, std::uint8_t opacity)
     return grayscaleA<std::uint8_t>(value, opacity);
 }
 
-constexpr ColorU16 grayscaleAU16(std::uint8_t value, std::uint8_t opacity)
+constexpr ColorU16 grayscaleAU16(std::uint16_t value, std::uint16_t opacity)
 {
     return grayscaleA<std::uint16_t>(value, opacity);
 }

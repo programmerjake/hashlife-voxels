@@ -19,38 +19,11 @@
  *
  */
 #include "vulkan_driver.h"
-#if 0
-#warning finish VulkanDriver
-#else
 #include "../../../logging/logging.h"
 #include "../../../util/constexpr_assert.h"
 #include "vulkan_buffer_allocator.h"
-#include "vulkan_image_layer_allocator.h"
+#include "vulkan_image_allocator.h"
 #include <cstring>
-#include <memory>
-#include <stdexcept>
-#include <cstddef>
-#include <vector>
-#include <sstream>
-#include <cstdint>
-#include <utility>
-#include "../../../util/atomic_shared_ptr.h"
-#include "../../../util/memory_manager.h"
-#include <type_traits>
-#include "SDL_syswm.h"
-#if defined(__ANDROID__)
-#define VK_USE_PLATFORM_ANDROID_KHR
-#elif defined(__linux__)
-#define VK_USE_PLATFORM_XCB_KHR
-#include <X11/Xlib-xcb.h>
-#elif defined(_WIN32)
-#define VK_USE_PLATFORM_WIN32_KHR
-#else
-#error unsupported platform
-#endif
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
-#include <vulkan/vk_platform.h>
 
 namespace programmerjake
 {
@@ -67,129 +40,21 @@ namespace
 #include "vulkan.vert.h"
 #include "vulkan.frag.h"
 }
+using graphics_util::texture_atlas::TextureSize;
 struct VulkanDriver::Implementation final
 {
 public:
     struct VulkanTextureImplementation final : public TextureImplementation
     {
-#warning finish
-        const std::size_t width;
-        const std::size_t height;
-        VulkanTextureImplementation(std::size_t width, std::size_t height)
-            : width(width), height(height)
+        const std::vector<Image> image;
+        std::size_t x, y;
+        const TextureSize size;
+        bool upToDate = false;
+        explicit VulkanTextureImplementation(std::shared_ptr<Image> image)
+            : image(std::move(image)), x(), y(), size(*this->image)
         {
         }
     };
-    struct VulkanVec4 final
-    {
-        float v[4];
-        constexpr VulkanVec4() noexcept : v{}
-        {
-        }
-        constexpr VulkanVec4(const ColorF &v) noexcept : v{v.red, v.green, v.blue, v.opacity}
-        {
-        }
-        constexpr VulkanVec4(float v0, float v1, float v2, float v3) noexcept : v{v0, v1, v2, v3}
-        {
-        }
-    };
-    static_assert(sizeof(VulkanVec4) == 4 * sizeof(float), "");
-    struct VulkanVec3 final
-    {
-        float v[3];
-        constexpr VulkanVec3() noexcept : v{}
-        {
-        }
-        constexpr VulkanVec3(const util::Vector3F &v) noexcept : v{v.x, v.y, v.z}
-        {
-        }
-        constexpr VulkanVec3(float v0, float v1, float v2) noexcept : v{v0, v1, v2}
-        {
-        }
-    };
-    static_assert(sizeof(VulkanVec3) == 3 * sizeof(float), "");
-    struct VulkanVec2 final
-    {
-        float v[2];
-        constexpr VulkanVec2() noexcept : v{}
-        {
-        }
-        constexpr VulkanVec2(const TextureCoordinates &v) noexcept : v{v.u, v.v}
-        {
-        }
-        constexpr VulkanVec2(float v0, float v1) noexcept : v{v0, v1}
-        {
-        }
-    };
-    static_assert(sizeof(VulkanVec2) == 2 * sizeof(float), "");
-    struct VulkanMat4 final
-    {
-        VulkanVec4 v[4];
-        constexpr VulkanMat4() noexcept : v{}
-        {
-        }
-        constexpr VulkanMat4(const util::Matrix4x4F &v) noexcept
-            : v{VulkanVec4(v[0][0], v[0][1], v[0][2], v[0][3]),
-                VulkanVec4(v[1][0], v[1][1], v[1][2], v[1][3]),
-                VulkanVec4(v[2][0], v[2][1], v[2][2], v[2][3]),
-                VulkanVec4(v[3][0], v[3][1], v[3][2], v[3][3])}
-        {
-        }
-    };
-    static_assert(sizeof(VulkanMat4) == 4 * sizeof(VulkanVec4), "");
-    struct VulkanVertex final
-    {
-        VulkanVec3 position;
-        static constexpr std::uint32_t positionLocation = 0;
-        static constexpr VkFormat positionFormat = VK_FORMAT_R32G32B32_SFLOAT;
-        VulkanVec4 color;
-        static constexpr std::uint32_t colorLocation = 1;
-        static constexpr VkFormat colorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-        VulkanVec2 textureCoordinates;
-        static constexpr std::uint32_t textureCoordinatesLocation = 2;
-        static constexpr VkFormat textureCoordinatesFormat = VK_FORMAT_R32G32_SFLOAT;
-        constexpr VulkanVertex() noexcept : position(), color(), textureCoordinates()
-        {
-        }
-        constexpr VulkanVertex(const Vertex &v) noexcept
-            : position(v.getPosition()),
-              color(v.getColor()),
-              textureCoordinates(v.getTextureCoordinates())
-        {
-        }
-        constexpr VulkanVertex(const VertexWithoutNormal &v) noexcept
-            : position(v.getPosition()),
-              color(v.getColor()),
-              textureCoordinates(v.getTextureCoordinates())
-        {
-        }
-    };
-    struct VulkanTriangle final
-    {
-        VulkanVertex v[3];
-        constexpr VulkanTriangle() noexcept : v{}
-        {
-        }
-        constexpr VulkanTriangle(const Triangle &v) noexcept : v{VulkanVertex(v.vertices[0]),
-                                                                 VulkanVertex(v.vertices[1]),
-                                                                 VulkanVertex(v.vertices[2])}
-        {
-        }
-        constexpr VulkanTriangle(const TriangleWithoutNormal &v) noexcept
-            : v{VulkanVertex(v.vertices[0]),
-                VulkanVertex(v.vertices[1]),
-                VulkanVertex(v.vertices[2])}
-        {
-        }
-    };
-    static_assert(sizeof(VulkanTriangle) == 3 * sizeof(VulkanVertex), "");
-    struct PushConstants final
-    {
-        // must match PushConstants in vulkan.vert
-        VulkanMat4 transformMatrix;
-    };
-    static_assert(sizeof(PushConstants) <= 128,
-                  "PushConstants is bigger than minimum guaranteed size");
     class TemporaryTriangleBuffer final
     {
         TemporaryTriangleBuffer(const TemporaryTriangleBuffer &) = delete;
@@ -234,9 +99,53 @@ public:
             return buffer;
         }
     };
+    struct VulkanRenderBuffer;
+    struct VulkanVertexBufferAllocator final
+    {
+        std::shared_ptr<VulkanBufferAllocator> allocator;
+        util::Spinlock renderBufferListLock;
+        std::list<std::weak_ptr<VulkanRenderBuffer>> renderBufferList;
+        bool detachingBuffers = false;
+        VulkanVertexBufferAllocator(std::shared_ptr<const VulkanDevice> device)
+            : allocator(VulkanBufferAllocator::make(
+                  device,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  std::vector<VkMemoryPropertyFlags>{
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                          | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+                          | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+                          | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  })),
+              renderBufferListLock(),
+              renderBufferList()
+        {
+        }
+    };
+    static void detachBuffers(
+        const std::shared_ptr<VulkanVertexBufferAllocator> &bufferAllocator) noexcept
+    {
+        std::unique_lock<util::Spinlock> lockIt(bufferAllocator->renderBufferListLock);
+        constexprAssert(!bufferAllocator->detachingBuffers);
+        bufferAllocator->detachingBuffers = true;
+        while(!bufferAllocator->renderBufferList.empty())
+        {
+            auto weakRenderBuffer = std::move(bufferAllocator->renderBufferList.front());
+            bufferAllocator->renderBufferList.pop_front();
+            lockIt.unlock();
+            auto renderBuffer = weakRenderBuffer.lock();
+            if(renderBuffer)
+            {
+                std::unique_lock<util::Spinlock> lockIt2(renderBuffer->vertexBufferLock);
+                renderBuffer->vertexBuffer = nullptr;
+            }
+            lockIt.lock();
+        }
+        bufferAllocator->detachingBuffers = false;
+    }
     struct VulkanRenderBuffer final : public RenderBuffer
     {
-#warning finish
         struct TriangleBuffer final
         {
             std::unique_ptr<VulkanTriangle[]> buffer;
@@ -280,9 +189,9 @@ public:
         };
         util::EnumArray<TriangleBuffer, RenderLayer> triangleBuffers;
         bool finished;
-        std::shared_ptr<const VkDevice> device;
-        VertexBufferAllocation buffer;
-        std::shared_ptr<void *const> mappedBuffer;
+        util::Spinlock vertexBufferLock{};
+        VulkanBufferAllocator::AllocationReference vertexBuffer{};
+        std::list<std::weak_ptr<VulkanRenderBuffer>>::iterator vertexBufferListEntry{};
         VulkanRenderBuffer(const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
             : triangleBuffers(), finished(false)
         {
@@ -291,13 +200,12 @@ public:
                 triangleBuffers[renderLayer] = TriangleBuffer(maximumSizes[renderLayer]);
             }
         }
-        void attachDevice(const std::shared_ptr<const VkDevice> &device,
-                          const std::shared_ptr<Implementation> &imp)
+        void attachToGPU(const std::shared_ptr<VulkanVertexBufferAllocator> &bufferAllocator)
         {
-            if(!device)
-                return;
-            if(this->device == device && buffer != nullptr)
-                return;
+            assert(bufferAllocator);
+            std::unique_lock<util::Spinlock> lockIt(vertexBufferLock);
+            if(vertexBuffer)
+                return; // already attached
             std::size_t bufferSize = 0;
             for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
             {
@@ -305,18 +213,19 @@ public:
             }
             if(bufferSize == 0)
                 return;
-            this->device = device;
-            mappedBuffer = nullptr;
-            buffer = nullptr;
-            buffer = imp->vertexBufferMemoryManager.allocate(bufferSize);
-            mappedBuffer = (*buffer.getBase())->mapMemory();
-            std::size_t bufferPartStartOffset = buffer.getOffset();
+            std::unique_lock<util::Spinlock> lockIt(bufferAllocator->renderBufferListLock);
+            auto newBuffer = bufferAllocator->allocator->allocate(bufferSize);
+            bufferAllocator->renderBufferList.emplace_front(shared_from_this());
+            vertexBufferListEntry = bufferAllocator->renderBufferList.begin();
+            bufferAllocator mappedBuffer = nullptr;
+            vertexBuffer = std::move(newBuffer);
+            VkDeviceSize bufferPartStartOffset = 0;
             for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 triangleBuffers[renderLayer].finalBufferOffset = bufferPartStartOffset;
                 if(triangleBuffers[renderLayer].bufferUsed)
-                    std::memcpy(static_cast<char *>(*mappedBuffer)
-                                    + triangleBuffers[renderLayer].finalBufferOffset,
+                    std::memcpy(static_cast<char *>(vertexBuffer.getMappedMemory())
+                                    + (triangleBuffers[renderLayer].finalBufferOffset),
                                 triangleBuffers[renderLayer].buffer.get(),
                                 triangleBuffers[renderLayer].bufferUsed * sizeof(VulkanTriangle));
                 bufferPartStartOffset +=
@@ -347,9 +256,11 @@ public:
             auto &triangleBuffer = triangleBuffers[renderLayer];
             std::size_t initialUsedCount = triangleBuffer.bufferUsed;
             triangleBuffer.append(triangles, triangleCount);
-            if(!mappedBuffer)
+            std::unique_lock<util::Spinlock> lockIt(vertexBufferLock);
+            if(!vertexBuffer)
                 return;
-            std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+            std::memcpy(static_cast<char *>(vertexBuffer.getMappedMemory())
+                            + triangleBuffer.finalBufferOffset
                             + initialUsedCount * sizeof(VulkanTriangle),
                         triangleBuffer.buffer.get() + initialUsedCount,
                         triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
@@ -364,9 +275,11 @@ public:
             std::size_t initialUsedCount = triangleBuffer.bufferUsed;
             for(std::size_t i = 0; i < triangleCount; i++)
                 triangleBuffer.append(transform(tform, triangles[i]));
-            if(!mappedBuffer)
+            std::unique_lock<util::Spinlock> lockIt(vertexBufferLock);
+            if(!vertexBuffer)
                 return;
-            std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+            std::memcpy(static_cast<char *>(vertexBuffer.getMappedMemory())
+                            + triangleBuffer.finalBufferOffset
                             + initialUsedCount * sizeof(VulkanTriangle),
                         triangleBuffer.buffer.get() + initialUsedCount,
                         triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
@@ -375,6 +288,7 @@ public:
         {
             constexprAssert(!finished);
             TemporaryTriangleBuffer tempBuffer;
+            std::unique_lock<util::Spinlock> lockIt(vertexBufferLock);
             for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
@@ -392,9 +306,10 @@ public:
                                            tempBuffer.get()[i].texture.value));
                     triangleBuffer.buffer[i + location] = tempBuffer.get()[i];
                 }
-                if(!mappedBuffer)
+                if(!vertexBuffer)
                     continue;
-                std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+                std::memcpy(static_cast<char *>(vertexBuffer.getMappedMemory())
+                                + triangleBuffer.finalBufferOffset
                                 + initialUsedCount * sizeof(VulkanTriangle),
                             triangleBuffer.buffer.get() + initialUsedCount,
                             triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
@@ -405,6 +320,7 @@ public:
         {
             constexprAssert(!finished);
             TemporaryTriangleBuffer tempBuffer;
+            std::unique_lock<util::Spinlock> lockIt(vertexBufferLock);
             for(auto renderLayer : util::EnumTraits<RenderLayer>::values)
             {
                 auto &triangleBuffer = triangleBuffers[renderLayer];
@@ -422,9 +338,10 @@ public:
                                            tempBuffer.get()[i].texture.value));
                     triangleBuffer.buffer[i + location] = transform(tform, tempBuffer.get()[i]);
                 }
-                if(!mappedBuffer)
+                if(!vertexBuffer)
                     continue;
-                std::memcpy(static_cast<char *>(*mappedBuffer) + triangleBuffer.finalBufferOffset
+                std::memcpy(static_cast<char *>(vertexBuffer.getMappedMemory())
+                                + triangleBuffer.finalBufferOffset
                                 + initialUsedCount * sizeof(VulkanTriangle),
                             triangleBuffer.buffer.get() + initialUsedCount,
                             triangleBuffer.bufferUsed * sizeof(VulkanTriangle));
@@ -433,9 +350,9 @@ public:
         virtual void finish() noexcept override
         {
             finished = true;
-            mappedBuffer = nullptr;
         }
     };
+#error finish
     struct VulkanCommandBuffer final : public CommandBuffer
     {
         std::shared_ptr<const VkDevice> device;
@@ -2301,4 +2218,3 @@ void VulkanDriver::setGraphicsContextRecreationNeeded() noexcept
 }
 }
 }
-#endif

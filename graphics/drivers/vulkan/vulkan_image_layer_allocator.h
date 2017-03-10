@@ -109,6 +109,7 @@ private:
     };
     struct Image final
     {
+#error finish
     };
     typedef util::MemoryManager<BaseAllocator> MemoryManager;
 
@@ -116,6 +117,7 @@ private:
     MemoryManager memoryManager;
 
 public:
+#error finish
     struct AllocationReference final
     {
     private:

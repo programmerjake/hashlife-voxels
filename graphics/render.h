@@ -47,7 +47,7 @@ enum class RenderLayer
 
 class ReadableRenderBuffer;
 
-class RenderBuffer
+class RenderBuffer : public std::enable_shared_from_this<RenderBuffer>
 {
 public:
     virtual ~RenderBuffer() = default;
