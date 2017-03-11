@@ -381,13 +381,12 @@ struct OpenGL1Driver::Implementation final
         textureLayoutNeeded = false;
         updatedTextures.clear();
         TextureSize newTextureSize =
-            graphics_util::texture_atlas::TextureAtlas<OpenGLTexture,
-                                                       &OpenGLTexture::x,
-                                                       &OpenGLTexture::y,
-                                                       &OpenGLTexture::size>::layout(textures
-                                                                                         .begin(),
-                                                                                     textures
-                                                                                         .end());
+            std::get<0>(graphics_util::texture_atlas::TextureAtlas<OpenGLTexture,
+                                                                   &OpenGLTexture::x,
+                                                                   &OpenGLTexture::y,
+                                                                   nullptr,
+                                                                   &OpenGLTexture::size>::
+                            layout(textures.begin(), textures.end()));
         logging::log(logging::Level::Info, "OpenGL1Driver", "laid out textures");
         if(textureId == 0 || newTextureSize != currentTextureSize)
         {

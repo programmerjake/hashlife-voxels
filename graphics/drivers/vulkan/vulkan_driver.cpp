@@ -47,11 +47,11 @@ public:
     struct VulkanTextureImplementation final : public TextureImplementation
     {
         const std::vector<Image> image;
-        std::size_t x, y;
+        std::size_t x, y, layer;
         const TextureSize size;
         bool upToDate = false;
         explicit VulkanTextureImplementation(std::shared_ptr<Image> image)
-            : image(std::move(image)), x(), y(), size(*this->image)
+            : image(std::move(image)), x(), y(), layer(), size(*this->image)
         {
         }
     };
@@ -100,39 +100,169 @@ public:
         }
     };
     struct VulkanRenderBuffer;
-    struct VulkanVertexBufferAllocator final
+    struct VulkanBufferTextureState final
     {
-        std::shared_ptr<VulkanBufferAllocator> allocator;
-        util::Spinlock renderBufferListLock;
+        std::shared_ptr<const VulkanDevice> device;
+        std::shared_ptr<VulkanBufferAllocator> vertexBufferAllocator;
+        std::shared_ptr<VulkanBufferAllocator> transferBufferAllocator;
+        std::shared_ptr<VulkanImageAllocator> imageAllocator;
+        util::Spinlock stateLock;
         std::list<std::weak_ptr<VulkanRenderBuffer>> renderBufferList;
         bool detachingBuffers = false;
-        VulkanVertexBufferAllocator(std::shared_ptr<const VulkanDevice> device)
-            : allocator(VulkanBufferAllocator::make(
-                  device,
-                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                  std::vector<VkMemoryPropertyFlags>{
-                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                          | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
-                          | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
-                          | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  })),
-              renderBufferListLock(),
-              renderBufferList()
+        std::list<VulkanTextureImplementation> textures;
+        std::vector<VulkanTextureImplementation *> updatedTextures;
+        bool textureLayoutNeeded = true;
+        std::uint64_t textureLayoutVersion = 0;
+        TextureSize currentTextureSize;
+        std::size_t currentTextureLayerCount = 0;
+        float invCurrentTextureWidth = 1;
+        float invCurrentTextureHeight = 1;
+        std::shared_ptr<const VulkanImageAllocator::Image> image;
+        std::shared_ptr<const VulkanImageLayout> imageLayout;
+        void attachDevice(std::shared_ptr<const VulkanDevice> newDevice)
         {
+            std::unique_lock<util::Spinlock> lockIt(stateLock);
+            assert(!vertexBufferAllocator);
+            assert(!imageAllocator);
+            assert(!image);
+            assert(!imageLayout);
+            assert(!device);
+            device = newDevice;
+            vertexBufferAllocator = VulkanBufferAllocator::make(
+                device,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                std::vector<VkMemoryPropertyFlags>{
+                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                        | VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+                        | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                });
+            transferBufferAllocator = VulkanBufferAllocator::make(
+                device,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                std::vector<VkMemoryPropertyFlags>{
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                });
+            imageAllocator = VulkanImageAllocator::make(device,
+                                                        VK_FORMAT_R8G8B8A8_UNORM,
+                                                        VK_IMAGE_TILING_OPTIMAL,
+                                                        std::vector<VkMemoryPropertyFlags>{
+                                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                                        });
         }
-    };
-    static void detachBuffers(
-        const std::shared_ptr<VulkanVertexBufferAllocator> &bufferAllocator) noexcept
-    {
-        std::unique_lock<util::Spinlock> lockIt(bufferAllocator->renderBufferListLock);
-        constexprAssert(!bufferAllocator->detachingBuffers);
-        bufferAllocator->detachingBuffers = true;
-        while(!bufferAllocator->renderBufferList.empty())
+        std::shared_ptr<VulkanPrimaryCommandBuffer> layoutTextures(
+            std::unique_lock<util::Spinlock> &lockedStateLock,
+            const std::shared_ptr<VulkanCommandPool> &commandPool,
+            std::shared_ptr<VulkanPrimaryCommandBuffer> commandBuffer = nullptr)
         {
-            auto weakRenderBuffer = std::move(bufferAllocator->renderBufferList.front());
-            bufferAllocator->renderBufferList.pop_front();
+#error finish
+            if(commandBuffer)
+                commandBuffer->reset();
+            else
+                commandBuffer = VulkanPrimaryCommandBuffer::make(commandPool);
+            textureLayoutVersion++;
+            textureLayoutNeeded = false;
+            updatedTextures.clear();
+            TextureSize newTextureSize;
+            std::size_t newTextureLayerCount;
+            std::tie(newTextureSize, newTextureLayerCount) =
+                graphics_util::texture_atlas::TextureAtlas<VulkanTextureImplementation,
+                                                           &VulkanTextureImplementation::x,
+                                                           &VulkanTextureImplementation::y,
+                                                           &VulkanTextureImplementation::layer,
+                                                           &VulkanTextureImplementation::size>::
+                    layout(textures.begin(),
+                           textures.end(),
+                           device->physicalDeviceProperties.limits.maxImageArrayLayers);
+            logging::log(logging::Level::Info, "OpenGL1Driver", "laid out textures");
+            if(!image || newTextureSize != currentTextureSize
+               || newTextureLayerCount != currentTextureLayerCount)
+            {
+                std::ostringstream ss;
+                ss << "reallocating Vulkan image: " << newTextureSize.width << "x"
+                   << newTextureSize.height << "[" << newTextureLayerCount << "]";
+                logging::log(logging::Level::Info, "VulkanDriver", ss.str());
+                currentTextureSize = newTextureSize;
+                currentTextureLayerCount = newTextureLayerCount;
+                invCurrentTextureWidth = 1.0f / currentTextureSize.width;
+                invCurrentTextureHeight = 1.0f / currentTextureSize.height;
+                image = nullptr;
+                image = imageAllocator->allocate(
+                    0,
+                    VK_IMAGE_TYPE_2D,
+                    newTextureSize.width,
+                    newTextureSize.height,
+                    1,
+                    1,
+                    newTextureLayerCount,
+                    VK_SAMPLE_COUNT_1_BIT,
+                    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    VK_SHARING_MODE_EXCLUSIVE,
+                    0,
+                    nullptr,
+                    VK_IMAGE_LAYOUT_UNDEFINED);
+#error create imageLayout
+            }
+            std::size_t textureIndex = 0;
+            VulkanBufferAllocator::AllocationReference buffer = transferBufferAllocator->allocate();
+            for(auto &texture : textures)
+            {
+                std::ostringstream ss;
+                ss << "texture #" << textureIndex++ << ": " << texture.size.width << "x"
+                   << texture.size.height << " at " << texture.x << ", " << texture.y;
+                logging::log(logging::Level::Debug, "VulkanDriver", ss.str());
+                texture.upToDate = true;
+                glTexSubImage2D(GL_TEXTURE_2D,
+                                0,
+                                texture.x,
+                                texture.y,
+                                texture.size.width,
+                                texture.size.height,
+                                GL_RGBA,
+                                GL_UNSIGNED_BYTE,
+                                texture.image->data());
+            }
+            auto &vk = device->vk;
+            vk->BeginCommandBuffer();
+            commandBuffer->addDependancy(buffer);
+            vk->CmdCopyBufferToImage(commandBuffer->get(), buffer.getBuffer(), image->getImage());
+            vk->EndCommandBuffer();
+        }
+        void updateTextures(std::unique_lock<util::Spinlock> &lockedStateLock)
+        {
+#error finish
+            if(textureLayoutNeeded)
+            {
+                layoutTextures(lockedTextureLock);
+                return;
+            }
+            for(auto *texture : updatedTextures)
+            {
+                texture->upToDate = true;
+                glTexSubImage2D(GL_TEXTURE_2D,
+                                0,
+                                texture->x,
+                                texture->y,
+                                texture->size.width,
+                                texture->size.height,
+                                GL_RGBA,
+                                GL_UNSIGNED_BYTE,
+                                texture->image->data());
+            }
+        }
+        VulkanBufferTextureState() = default;
+    };
+    static void detachDeviceFromBufferTextureState(
+        const std::shared_ptr<VulkanBufferTextureState> &bufferTextureState) noexcept
+    {
+        std::unique_lock<util::Spinlock> lockIt(bufferTextureState->stateLock);
+        constexprAssert(!bufferTextureState->detachingBuffers);
+        bufferTextureState->detachingBuffers = true;
+        while(!bufferTextureState->renderBufferList.empty())
+        {
+            auto weakRenderBuffer = std::move(bufferTextureState->renderBufferList.front());
+            bufferTextureState->renderBufferList.pop_front();
             lockIt.unlock();
             auto renderBuffer = weakRenderBuffer.lock();
             if(renderBuffer)
@@ -142,7 +272,15 @@ public:
             }
             lockIt.lock();
         }
-        bufferAllocator->detachingBuffers = false;
+        bufferTextureState->detachingBuffers = false;
+        bufferTextureState->device = nullptr;
+        bufferTextureState->vertexBufferAllocator = nullptr;
+        bufferTextureState->transferBufferAllocator = nullptr;
+        bufferTextureState->imageAllocator = nullptr;
+        bufferTextureState->updatedTextures.clear();
+        bufferTextureState->textureLayoutNeeded = true;
+        bufferTextureState->image = nullptr;
+        bufferTextureState->imageLayout = nullptr;
     }
     struct VulkanRenderBuffer final : public RenderBuffer
     {
@@ -192,6 +330,7 @@ public:
         util::Spinlock vertexBufferLock{};
         VulkanBufferAllocator::AllocationReference vertexBuffer{};
         std::list<std::weak_ptr<VulkanRenderBuffer>>::iterator vertexBufferListEntry{};
+        std::uint64_t textureLayoutVersion = 0;
         VulkanRenderBuffer(const util::EnumArray<std::size_t, RenderLayer> &maximumSizes)
             : triangleBuffers(), finished(false)
         {
@@ -200,9 +339,9 @@ public:
                 triangleBuffers[renderLayer] = TriangleBuffer(maximumSizes[renderLayer]);
             }
         }
-        void attachToGPU(const std::shared_ptr<VulkanVertexBufferAllocator> &bufferAllocator)
+        void attachToGPU(const std::shared_ptr<VulkanBufferTextureState> &bufferTextureState)
         {
-            assert(bufferAllocator);
+            assert(bufferTextureState);
             std::unique_lock<util::Spinlock> lockIt(vertexBufferLock);
             if(vertexBuffer)
                 return; // already attached
@@ -213,11 +352,10 @@ public:
             }
             if(bufferSize == 0)
                 return;
-            std::unique_lock<util::Spinlock> lockIt(bufferAllocator->renderBufferListLock);
-            auto newBuffer = bufferAllocator->allocator->allocate(bufferSize);
-            bufferAllocator->renderBufferList.emplace_front(shared_from_this());
-            vertexBufferListEntry = bufferAllocator->renderBufferList.begin();
-            bufferAllocator mappedBuffer = nullptr;
+            std::unique_lock<util::Spinlock> lockIt(bufferTextureState->stateLock);
+            auto newBuffer = bufferTextureState->vertexBufferAllocator->allocate(bufferSize);
+            bufferTextureState->renderBufferList.emplace_front(shared_from_this());
+            vertexBufferListEntry = bufferTextureState->renderBufferList.begin();
             vertexBuffer = std::move(newBuffer);
             VkDeviceSize bufferPartStartOffset = 0;
             for(RenderLayer renderLayer : util::EnumTraits<RenderLayer>::values)
@@ -231,8 +369,6 @@ public:
                 bufferPartStartOffset +=
                     triangleBuffers[renderLayer].bufferSize * sizeof(VulkanTriangle);
             }
-            if(finished)
-                mappedBuffer = nullptr;
         }
         bool isFinished() const noexcept
         {
@@ -353,7 +489,7 @@ public:
         }
     };
 #error finish
-    struct VulkanCommandBuffer final : public CommandBuffer
+    struct VulkanCommandBufferImplementation final : public CommandBuffer
     {
         std::shared_ptr<const VkDevice> device;
         std::shared_ptr<const VkCommandPool> commandPool;
@@ -368,8 +504,8 @@ public:
         bool hasInitialClearDepth = false;
         bool hasAnyRenderCommands = false;
         ColorF clearColor{};
-        explicit VulkanCommandBuffer(std::shared_ptr<const VkDevice> deviceIn,
-                                     const std::shared_ptr<Implementation> &imp)
+        explicit VulkanCommandBufferImplementation(std::shared_ptr<const VkDevice> deviceIn,
+                                                   const std::shared_ptr<Implementation> &imp)
             : device(std::move(deviceIn)), imp(imp), vkEndCommandBuffer(imp->vkEndCommandBuffer)
         {
             commandPool =

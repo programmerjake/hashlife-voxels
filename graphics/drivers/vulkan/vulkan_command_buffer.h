@@ -24,6 +24,9 @@
 
 #include "vulkan_device.h"
 #include <memory>
+#include <tuple>
+#include <deque>
+#include "../../../util/any.h"
 
 namespace programmerjake
 {
@@ -62,6 +65,7 @@ public:
                                                          std::uint32_t queueFamilyIndex);
 };
 
+template <VkCommandBufferLevel Level>
 struct VulkanCommandBuffer final
 {
     VulkanCommandBuffer(const VulkanCommandBuffer &) = delete;
@@ -75,17 +79,35 @@ private:
     private:
         PrivateAccess() = default;
     };
-
-public:
-    const std::shared_ptr<const VulkanFunctions> vk;
-    const std::shared_ptr<const VulkanCommandPool> commandPool;
     VkCommandBuffer commandBuffer;
     bool commandBufferGood;
+    std::deque<util::Any> dependancies;
+
+public:
+    static constexpr VkCommandBufferLevel level = Level;
+    const std::shared_ptr<const VulkanFunctions> vk;
+    const std::shared_ptr<const VulkanCommandPool> commandPool;
+    void addDependancy(util::Any v)
+    {
+        dependancies.push_back(std::move(v));
+    }
+    void reset()
+    {
+        handleVulkanResult(vk->ResetCommandBuffer(commandBuffer, 0), "vkResetCommandBuffer");
+        dependancies.clear();
+    }
+    VkCommandBuffer get() const noexcept
+    {
+        return commandBuffer;
+    }
     VulkanCommandBuffer(std::shared_ptr<const VulkanCommandPool> commandPool, PrivateAccess);
     ~VulkanCommandBuffer();
-    static std::shared_ptr<const VulkanCommandBuffer> make(
-        std::shared_ptr<const VulkanCommandPool> commandPool, VkCommandBufferLevel level);
+    static std::shared_ptr<VulkanCommandBuffer> make(
+        std::shared_ptr<const VulkanCommandPool> commandPool);
 };
+
+typedef VulkanCommandBuffer<VK_COMMAND_BUFFER_LEVEL_PRIMARY> VulkanPrimaryCommandBuffer;
+typedef VulkanCommandBuffer<VK_COMMAND_BUFFER_LEVEL_SECONDARY> VulkanSecondaryCommandBuffer;
 }
 }
 }

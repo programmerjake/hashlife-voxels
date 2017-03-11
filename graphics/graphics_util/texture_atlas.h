@@ -105,12 +105,14 @@ public:
 template <typename T,
           std::size_t T::*XMember,
           std::size_t T::*YMember,
+          std::size_t T::*LayerMember,
           const TextureSize T::*SizeMember>
 struct TextureAtlas final
 {
     typedef T TextureType;
     static constexpr std::size_t T::*xMember = XMember;
     static constexpr std::size_t T::*yMember = YMember;
+    static constexpr std::size_t T::*layerMember = LayerMember;
     static constexpr const TextureSize T::*sizeMember = SizeMember;
 
 private:
@@ -184,8 +186,12 @@ private:
         }
     };
     template <typename InputIterator, typename Sentinal>
-    static TextureSize layoutImplementation(InputIterator inputBegin, Sentinal &&inputEnd)
+    static std::pair<TextureSize, std::size_t> layoutImplementation(InputIterator inputBegin,
+                                                                    Sentinal &&inputEnd,
+                                                                    std::size_t maxLayerCount)
     {
+        assert(maxLayerCount > 0);
+        assert(maxLayerCount == 1 || layerMember != nullptr);
         std::vector<TextureGroup> textureGroups;
         for(InputIterator iter = std::move(inputBegin); iter != std::forward<Sentinal>(inputEnd);
             ++iter)
@@ -193,16 +199,16 @@ private:
             T *texture = *iter;
             texture->*xMember = 0;
             texture->*yMember = 0;
+            if(layerMember)
+                texture->*layerMember = 0;
             TextureSize size = texture->*sizeMember;
             size.width = size.width == 0 ? 1 : powerOf2Ceiling(size.width);
             size.height = size.height == 0 ? 1 : powerOf2Ceiling(size.height);
             textureGroups.push_back(TextureGroup(size, {texture}));
             std::push_heap(textureGroups.begin(), textureGroups.end(), textureGroupCompareFunction);
         }
-        if(textureGroups.empty())
-            return TextureSize(1, 1);
         std::vector<TextureGroup> currentGroups;
-        while(textureGroups.size() > 1)
+        while(textureGroups.size() > maxLayerCount)
         {
             currentGroups.clear();
             auto currentSize = textureGroups.front().size;
@@ -251,7 +257,20 @@ private:
                     textureGroups.begin(), textureGroups.end(), textureGroupCompareFunction);
             }
         }
-        return textureGroups.back().size;
+        TextureSize totalSize{1, 1};
+        for(std::size_t i = 0; i < textureGroups.size(); i++)
+        {
+            TextureGroup &textureGroup = textureGroups[i];
+            if(layerMember)
+                for(T *texture : textureGroup.textures)
+                    texture->*layerMember = i;
+            TextureSize &size = textureGroup.size;
+            if(size.width > totalSize.width)
+                totalSize.width = size.width;
+            if(size.height > totalSize.height)
+                totalSize.height = size.height;
+        }
+        return {totalSize, std::max<std::size_t>(1, textureGroups.size())};
     }
 
 public:
@@ -261,9 +280,12 @@ public:
         typename =
             typename std::enable_if<std::is_convertible<decltype(*std::declval<InputIterator &>()),
                                                         T *>::value>::type>
-    static TextureSize layout(InputIterator inputBegin, Sentinal &&inputEnd)
+    static std::pair<TextureSize, std::size_t> layout(InputIterator inputBegin,
+                                                      Sentinal &&inputEnd,
+                                                      std::size_t maxLayerCount = 1)
     {
-        return layoutImplementation(std::move(inputBegin), std::forward<Sentinal>(inputEnd));
+        return layoutImplementation(
+            std::move(inputBegin), std::forward<Sentinal>(inputEnd), maxLayerCount);
     }
     template <
         typename InputIterator,
@@ -272,10 +294,13 @@ public:
             typename std::enable_if<!std::is_convertible<decltype(*std::declval<InputIterator &>()),
                                                          T *>::value>::type,
         typename = void>
-    static TextureSize layout(InputIterator inputBegin, Sentinal &&inputEnd)
+    static std::pair<TextureSize, std::size_t> layout(InputIterator inputBegin,
+                                                      Sentinal &&inputEnd,
+                                                      std::size_t maxLayerCount = 1)
     {
         return layoutImplementation(AddressOfIterator<InputIterator>(std::move(inputBegin)),
-                                    std::forward<Sentinal>(inputEnd));
+                                    std::forward<Sentinal>(inputEnd),
+                                    maxLayerCount);
     }
 };
 }

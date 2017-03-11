@@ -56,14 +56,16 @@ std::shared_ptr<const VulkanCommandPool> VulkanCommandPool::make(
     if(resettable)
         createInfo.flags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     createInfo.queueFamilyIndex = queueFamilyIndex;
-    handleVulkanResult(vk->CreateCommandPool(device->device, &createInfo, nullptr, &retval->commandPool),
-                       "vkCreateCommandPool");
+    handleVulkanResult(
+        vk->CreateCommandPool(device->device, &createInfo, nullptr, &retval->commandPool),
+        "vkCreateCommandPool");
     retval->commandPoolGood = true;
     return retval;
 }
 
-VulkanCommandBuffer::VulkanCommandBuffer(std::shared_ptr<const VulkanCommandPool> commandPool,
-                                         PrivateAccess)
+template <VkCommandBufferLevel Level>
+VulkanCommandBuffer<Level>::VulkanCommandBuffer(
+    std::shared_ptr<const VulkanCommandPool> commandPool, PrivateAccess)
     : vk(commandPool->vk),
       commandPool(std::move(commandPool)),
       commandBuffer(VK_NULL_HANDLE),
@@ -71,15 +73,17 @@ VulkanCommandBuffer::VulkanCommandBuffer(std::shared_ptr<const VulkanCommandPool
 {
 }
 
-VulkanCommandBuffer::~VulkanCommandBuffer()
+template <VkCommandBufferLevel Level>
+VulkanCommandBuffer<Level>::~VulkanCommandBuffer()
 {
     if(commandBufferGood)
         vk->FreeCommandBuffers(
             commandPool->device->device, commandPool->commandPool, 1, &commandBuffer);
 }
 
-std::shared_ptr<const VulkanCommandBuffer> VulkanCommandBuffer::make(
-    std::shared_ptr<const VulkanCommandPool> commandPool, VkCommandBufferLevel level)
+template <VkCommandBufferLevel Level>
+std::shared_ptr<VulkanCommandBuffer<Level>> VulkanCommandBuffer<Level>::make(
+    std::shared_ptr<const VulkanCommandPool> commandPool)
 {
     auto retval = std::make_shared<VulkanCommandBuffer>(commandPool, PrivateAccess());
     auto &vk = retval->vk;

@@ -62,6 +62,9 @@ struct VulkanVec3 final
     constexpr VulkanVec3(const util::Vector3F &v) noexcept : v{v.x, v.y, v.z}
     {
     }
+    constexpr VulkanVec3(const TextureCoordinates &v, float layer) noexcept : v{v.u, v.v, layer}
+    {
+    }
     constexpr VulkanVec3(float v0, float v1, float v2) noexcept : v{v0, v1, v2}
     {
     }
@@ -110,21 +113,18 @@ struct VulkanVertex final
     VulkanVec4 color;
     static constexpr std::uint32_t colorLocation = 1;
     static constexpr VkFormat colorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-    VulkanVec2 textureCoordinates;
+    VulkanVec3 textureCoordinates;
     static constexpr std::uint32_t textureCoordinatesLocation = 2;
-    static constexpr VkFormat textureCoordinatesFormat = VK_FORMAT_R32G32_SFLOAT;
+    static constexpr VkFormat textureCoordinatesFormat = VK_FORMAT_R32G32B32_SFLOAT;
     constexpr VulkanVertex() noexcept : position(), color(), textureCoordinates()
     {
     }
-    constexpr VulkanVertex(const Vertex &v) noexcept : position(v.getPosition()),
-                                                       color(v.getColor()),
-                                                       textureCoordinates(v.getTextureCoordinates())
-    {
-    }
-    constexpr VulkanVertex(const VertexWithoutNormal &v) noexcept
-        : position(v.getPosition()),
-          color(v.getColor()),
-          textureCoordinates(v.getTextureCoordinates())
+    constexpr VulkanVertex(VulkanVec3 position,
+                           VulkanVec4 color,
+                           VulkanVec3 textureCoordinates) noexcept
+        : position(position),
+          color(color),
+          textureCoordinates(textureCoordinates)
     {
     }
 };
@@ -135,12 +135,8 @@ struct VulkanTriangle final
     constexpr VulkanTriangle() noexcept : v{}
     {
     }
-    constexpr VulkanTriangle(const Triangle &v) noexcept
-        : v{VulkanVertex(v.vertices[0]), VulkanVertex(v.vertices[1]), VulkanVertex(v.vertices[2])}
-    {
-    }
-    constexpr VulkanTriangle(const TriangleWithoutNormal &v) noexcept
-        : v{VulkanVertex(v.vertices[0]), VulkanVertex(v.vertices[1]), VulkanVertex(v.vertices[2])}
+    constexpr VulkanTriangle(const VulkanVertex &v0, const VulkanVertex &v1, const VulkanVertex &v2)
+        : v{v0, v1, v2}
     {
     }
 };

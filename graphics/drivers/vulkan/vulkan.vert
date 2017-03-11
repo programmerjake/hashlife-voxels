@@ -27,7 +27,7 @@
  */
 layout(location = 0) in vec3 positionIn;
 layout(location = 1) in vec4 colorIn;
-layout(location = 2) in vec2 textureCoordinatesIn;
+layout(location = 2) in vec3 textureCoordinatesIn;
 
 layout(push_constant) uniform PushConstants
 {
@@ -40,7 +40,7 @@ layout(push_constant) uniform PushConstants
 
 /* output variables; must match input variables in vulkan.frag */
 layout(location = 0) out vec4 colorOut;
-layout(location = 1) out vec2 textureCoordinatesOut;
+layout(location = 1) out vec3 textureCoordinatesOut;
 
 out gl_PerVertex
 {
