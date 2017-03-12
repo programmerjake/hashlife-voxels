@@ -25,6 +25,7 @@
 #include <limits>
 #include <cstdint>
 #include <type_traits>
+#include "simd.h"
 
 namespace programmerjake
 {
@@ -32,7 +33,7 @@ namespace voxels
 {
 namespace util
 {
-struct HashImplementation final
+struct FastHashImplementation final
 {
     // hashFinalize implementation from MurmurHash3
     // https://github.com/aappleby/smhasher/wiki/MurmurHash3
@@ -91,15 +92,15 @@ struct HashImplementation final
 #endif
 };
 
-inline std::size_t hashFinalize(std::size_t v) noexcept
+inline std::size_t fastHashFinalize(std::size_t v) noexcept
 {
-    return HashImplementation::hashFinalize(v);
+    return FastHashImplementation::hashFinalize(v);
 }
 
-struct Hasher final
+struct FastHasher final
 {
     std::size_t v;
-    constexpr explicit Hasher(std::size_t v = 0) noexcept : v(v)
+    constexpr explicit FastHasher(std::size_t v = 0) noexcept : v(v)
     {
     }
 
@@ -136,39 +137,71 @@ private:
     {
         return 32;
     }
-    constexpr Hasher nextHelper(std::size_t value) const noexcept
+    constexpr FastHasher nextHelper(std::size_t value) const noexcept
     {
-        return Hasher((v ^ (v >> getBitWidth(value) / 2))
-                          * static_cast<std::size_t>(0x7C942CEE357F35E7ULL)
-                      ^ value);
+        return FastHasher((v ^ (v >> getBitWidth(value) / 2))
+                              * static_cast<std::size_t>(0x7C942CEE357F35E7ULL)
+                          ^ value);
     }
 
 public:
-    friend constexpr Hasher next(Hasher hasher, std::uint32_t valueIn) noexcept
+    friend constexpr FastHasher next(FastHasher hasher, std::uint32_t valueIn) noexcept
     {
         return hasher.nextHelper(valueIn);
     }
-    friend constexpr Hasher next(Hasher hasher, std::uint8_t valueIn) noexcept
+    friend constexpr FastHasher next(FastHasher hasher, std::uint8_t valueIn) noexcept
     {
         return hasher.nextHelper(valueIn);
     }
-    friend constexpr Hasher next(Hasher hasher, std::uint16_t valueIn) noexcept
+    friend constexpr FastHasher next(FastHasher hasher, std::uint16_t valueIn) noexcept
     {
         return hasher.nextHelper(valueIn);
     }
-    friend constexpr Hasher next(Hasher hasher, std::uint64_t valueIn) noexcept
+    friend constexpr FastHasher next(FastHasher hasher, std::uint64_t valueIn) noexcept
     {
         return hasher.nextHelper(foldWord(valueIn));
     }
-    friend Hasher next(Hasher hasher, const volatile void *valueIn) noexcept
+    friend FastHasher next(FastHasher hasher, const volatile void *valueIn) noexcept
     {
         return hasher.nextHelper(foldWord(reinterpret_cast<std::uintptr_t>(valueIn)));
     }
-    friend std::size_t finish(Hasher hasher) noexcept
+    friend std::size_t finish(FastHasher hasher) noexcept
     {
-        return hashFinalize(hasher.v);
+        return fastHashFinalize(hasher.v);
     }
 };
+
+struct CollisionResistantHashOutput final
+{
+    constexpr CollisionResistantHashOutput() : a(), b(), c(), d()
+    {
+    }
+    constexpr CollisionResistantHashOutput(std::uint64_t a,
+                                           std::uint64_t b,
+                                           std::uint64_t c,
+                                           std::uint64_t d)
+        : a(a), b(b), c(c), d(d)
+    {
+    }
+    std::uint64_t a, b, c, d;
+    constexpr bool operator==(const CollisionResistantHashOutput &rt) const noexcept
+    {
+        return a == rt.a && b == rt.b && c == rt.c && d == rt.d;
+    }
+    constexpr bool operator!=(const CollisionResistantHashOutput &rt) const noexcept
+    {
+        return !operator==(rt);
+    }
+    constexpr std::size_t hash() const noexcept
+    {
+        return a;
+    }
+};
+
+struct CollisionResistantHasher final
+{
+};
+
 }
 }
 }

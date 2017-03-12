@@ -548,7 +548,7 @@ public:
     }
     static std::size_t hashNode(const ChildNodesArray &childNodes)
     {
-        util::Hasher hasher;
+        util::FastHasher hasher;
         for(auto &i : childNodes)
             for(auto &j : i)
                 for(auto childNode : j)
@@ -638,7 +638,7 @@ public:
     }
     static std::size_t hashNode(const BlocksArray &blocks)
     {
-        util::Hasher hasher;
+        util::FastHasher hasher;
         for(auto &i : blocks)
             for(auto &j : i)
                 for(auto &block : j)

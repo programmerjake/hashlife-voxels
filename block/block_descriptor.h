@@ -114,7 +114,7 @@ struct BlockStepInput final
     }
     std::size_t hash() const
     {
-        util::Hasher hasher;
+        util::FastHasher hasher;
         for(auto &i : blocks)
             for(auto &j : i)
                 for(auto &block : j)
