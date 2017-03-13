@@ -148,6 +148,9 @@ struct SIMD256 final
     {
     }
 #endif
+    constexpr SIMD256() noexcept : u8Value{}
+    {
+    }
     constexpr SIMD256(std::int8_t v) noexcept : i8Value{
                                                     v, v, v, v, v, v, v, v, //
                                                     v, v, v, v, v, v, v, v, //
@@ -983,407 +986,48 @@ struct SIMD256 final
     {
         static constexpr SIMD256 run(const SIMD256 &v) noexcept = delete;
     };
-    template <typename T, typename S>
-    struct ConvertHelper<T, T, S> final
+    template <typename T, typename S = void>
+    struct GetValueHelper final
     {
-        static constexpr SIMD256 run(const SIMD256 &v) noexcept
-        {
-            return v;
-        }
+        typedef char valueType;
+        static constexpr const valueType &run(const SIMD256 &v) noexcept = delete;
+        static constexpr valueType &run(SIMD256 &v) noexcept = delete;
     };
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From) \
-    template <typename S>                                          \
-    struct ConvertHelper<To, From, S> final                        \
-    {                                                              \
-        static constexpr SIMD256 run(const SIMD256 &v) noexcept    \
-        {                                                          \
-            return v;                                              \
-        }                                                          \
+#define programmerjake_voxels_util_SIMD256_GetValueHelper(Type, Var)     \
+    template <typename S>                                                \
+    struct GetValueHelper<Type, S> final                                 \
+    {                                                                    \
+        typedef decltype(Var) valueType;                                 \
+        static constexpr const valueType &run(const SIMD256 &v) noexcept \
+        {                                                                \
+            return v.Var;                                                \
+        }                                                                \
+        static constexpr valueType &run(SIMD256 &v) noexcept             \
+        {                                                                \
+            return v.Var;                                                \
+        }                                                                \
     }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, std::int8_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, std::uint8_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint16_t, std::int16_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int16_t, std::uint16_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint32_t, std::int32_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int32_t, std::uint32_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint64_t, std::int64_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int64_t, std::uint64_t);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From)                  \
-    template <typename S>                                                           \
-    struct ConvertHelper<To, From, S> final                                         \
-    {                                                                               \
-        static constexpr SIMD256 run(const SIMD256 &v0, const SIMD256 &v1) noexcept \
-        {                                                                           \
-            return SIMD256(static_cast<To>(v0.u16Value[0]),                         \
-                           static_cast<To>(v0.u16Value[1]),                         \
-                           static_cast<To>(v0.u16Value[2]),                         \
-                           static_cast<To>(v0.u16Value[3]),                         \
-                           static_cast<To>(v0.u16Value[4]),                         \
-                           static_cast<To>(v0.u16Value[5]),                         \
-                           static_cast<To>(v0.u16Value[6]),                         \
-                           static_cast<To>(v0.u16Value[7]),                         \
-                           static_cast<To>(v0.u16Value[8]),                         \
-                           static_cast<To>(v0.u16Value[9]),                         \
-                           static_cast<To>(v0.u16Value[10]),                        \
-                           static_cast<To>(v0.u16Value[11]),                        \
-                           static_cast<To>(v0.u16Value[12]),                        \
-                           static_cast<To>(v0.u16Value[13]),                        \
-                           static_cast<To>(v0.u16Value[14]),                        \
-                           static_cast<To>(v0.u16Value[15]),                        \
-                           static_cast<To>(v1.u16Value[0]),                         \
-                           static_cast<To>(v1.u16Value[1]),                         \
-                           static_cast<To>(v1.u16Value[2]),                         \
-                           static_cast<To>(v1.u16Value[3]),                         \
-                           static_cast<To>(v1.u16Value[4]),                         \
-                           static_cast<To>(v1.u16Value[5]),                         \
-                           static_cast<To>(v1.u16Value[6]),                         \
-                           static_cast<To>(v1.u16Value[7]),                         \
-                           static_cast<To>(v1.u16Value[8]),                         \
-                           static_cast<To>(v1.u16Value[9]),                         \
-                           static_cast<To>(v1.u16Value[10]),                        \
-                           static_cast<To>(v1.u16Value[11]),                        \
-                           static_cast<To>(v1.u16Value[12]),                        \
-                           static_cast<To>(v1.u16Value[13]),                        \
-                           static_cast<To>(v1.u16Value[14]),                        \
-                           static_cast<To>(v1.u16Value[15]));                       \
-        }                                                                           \
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::uint8_t, u8Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::int8_t, i8Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::uint16_t, u16Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::int16_t, i16Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::uint32_t, u32Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::int32_t, i32Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(float32, f32Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::uint64_t, u64Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(std::int64_t, i64Value);
+    programmerjake_voxels_util_SIMD256_GetValueHelper(float64, f64Value);
+#undef programmerjake_voxels_util_SIMD256_GetValueHelper
+    template <typename T>
+    constexpr const typename GetValueHelper<T>::valueType &getValue() const noexcept
+    {
+        return GetValueHelper<T>::run(*this);
     }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, std::uint16_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, std::uint16_t);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From)                  \
-    template <typename S>                                                           \
-    struct ConvertHelper<To, From, S> final                                         \
-    {                                                                               \
-        static constexpr SIMD256 run(const SIMD256 &v0, const SIMD256 &v1) noexcept \
-        {                                                                           \
-            return SIMD256(static_cast<To>(v0.i16Value[0]),                         \
-                           static_cast<To>(v0.i16Value[1]),                         \
-                           static_cast<To>(v0.i16Value[2]),                         \
-                           static_cast<To>(v0.i16Value[3]),                         \
-                           static_cast<To>(v0.i16Value[4]),                         \
-                           static_cast<To>(v0.i16Value[5]),                         \
-                           static_cast<To>(v0.i16Value[6]),                         \
-                           static_cast<To>(v0.i16Value[7]),                         \
-                           static_cast<To>(v0.i16Value[8]),                         \
-                           static_cast<To>(v0.i16Value[9]),                         \
-                           static_cast<To>(v0.i16Value[10]),                        \
-                           static_cast<To>(v0.i16Value[11]),                        \
-                           static_cast<To>(v0.i16Value[12]),                        \
-                           static_cast<To>(v0.i16Value[13]),                        \
-                           static_cast<To>(v0.i16Value[14]),                        \
-                           static_cast<To>(v0.i16Value[15]),                        \
-                           static_cast<To>(v1.i16Value[0]),                         \
-                           static_cast<To>(v1.i16Value[1]),                         \
-                           static_cast<To>(v1.i16Value[2]),                         \
-                           static_cast<To>(v1.i16Value[3]),                         \
-                           static_cast<To>(v1.i16Value[4]),                         \
-                           static_cast<To>(v1.i16Value[5]),                         \
-                           static_cast<To>(v1.i16Value[6]),                         \
-                           static_cast<To>(v1.i16Value[7]),                         \
-                           static_cast<To>(v1.i16Value[8]),                         \
-                           static_cast<To>(v1.i16Value[9]),                         \
-                           static_cast<To>(v1.i16Value[10]),                        \
-                           static_cast<To>(v1.i16Value[11]),                        \
-                           static_cast<To>(v1.i16Value[12]),                        \
-                           static_cast<To>(v1.i16Value[13]),                        \
-                           static_cast<To>(v1.i16Value[14]),                        \
-                           static_cast<To>(v1.i16Value[15]));                       \
-        }                                                                           \
+    template <typename T>
+    typename GetValueHelper<T>::valueType &getValue() noexcept
+    {
+        return GetValueHelper<T>::run(*this);
     }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, std::int16_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, std::int16_t);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From) \
-    template <typename S>                                          \
-    struct ConvertHelper<To, From, S> final                        \
-    {                                                              \
-        static constexpr SIMD256 run(const SIMD256 &v0,            \
-                                     const SIMD256 &v1,            \
-                                     const SIMD256 &v2,            \
-                                     const SIMD256 &v3) noexcept   \
-        {                                                          \
-            return SIMD256(static_cast<To>(v0.u32Value[0]),        \
-                           static_cast<To>(v0.u32Value[1]),        \
-                           static_cast<To>(v0.u32Value[2]),        \
-                           static_cast<To>(v0.u32Value[3]),        \
-                           static_cast<To>(v0.u32Value[4]),        \
-                           static_cast<To>(v0.u32Value[5]),        \
-                           static_cast<To>(v0.u32Value[6]),        \
-                           static_cast<To>(v0.u32Value[7]),        \
-                           static_cast<To>(v1.u32Value[0]),        \
-                           static_cast<To>(v1.u32Value[1]),        \
-                           static_cast<To>(v1.u32Value[2]),        \
-                           static_cast<To>(v1.u32Value[3]),        \
-                           static_cast<To>(v1.u32Value[4]),        \
-                           static_cast<To>(v1.u32Value[5]),        \
-                           static_cast<To>(v1.u32Value[6]),        \
-                           static_cast<To>(v1.u32Value[7]),        \
-                           static_cast<To>(v2.u32Value[0]),        \
-                           static_cast<To>(v2.u32Value[1]),        \
-                           static_cast<To>(v2.u32Value[2]),        \
-                           static_cast<To>(v2.u32Value[3]),        \
-                           static_cast<To>(v2.u32Value[4]),        \
-                           static_cast<To>(v2.u32Value[5]),        \
-                           static_cast<To>(v2.u32Value[6]),        \
-                           static_cast<To>(v2.u32Value[7]),        \
-                           static_cast<To>(v3.u32Value[0]),        \
-                           static_cast<To>(v3.u32Value[1]),        \
-                           static_cast<To>(v3.u32Value[2]),        \
-                           static_cast<To>(v3.u32Value[3]),        \
-                           static_cast<To>(v3.u32Value[4]),        \
-                           static_cast<To>(v3.u32Value[5]),        \
-                           static_cast<To>(v3.u32Value[6]),        \
-                           static_cast<To>(v3.u32Value[7]));       \
-        }                                                          \
-    }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, std::uint32_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, std::uint32_t);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From) \
-    template <typename S>                                          \
-    struct ConvertHelper<To, From, S> final                        \
-    {                                                              \
-        static constexpr SIMD256 run(const SIMD256 &v0,            \
-                                     const SIMD256 &v1,            \
-                                     const SIMD256 &v2,            \
-                                     const SIMD256 &v3) noexcept   \
-        {                                                          \
-            return SIMD256(static_cast<To>(v0.i32Value[0]),        \
-                           static_cast<To>(v0.i32Value[1]),        \
-                           static_cast<To>(v0.i32Value[2]),        \
-                           static_cast<To>(v0.i32Value[3]),        \
-                           static_cast<To>(v0.i32Value[4]),        \
-                           static_cast<To>(v0.i32Value[5]),        \
-                           static_cast<To>(v0.i32Value[6]),        \
-                           static_cast<To>(v0.i32Value[7]),        \
-                           static_cast<To>(v1.i32Value[0]),        \
-                           static_cast<To>(v1.i32Value[1]),        \
-                           static_cast<To>(v1.i32Value[2]),        \
-                           static_cast<To>(v1.i32Value[3]),        \
-                           static_cast<To>(v1.i32Value[4]),        \
-                           static_cast<To>(v1.i32Value[5]),        \
-                           static_cast<To>(v1.i32Value[6]),        \
-                           static_cast<To>(v1.i32Value[7]),        \
-                           static_cast<To>(v2.i32Value[0]),        \
-                           static_cast<To>(v2.i32Value[1]),        \
-                           static_cast<To>(v2.i32Value[2]),        \
-                           static_cast<To>(v2.i32Value[3]),        \
-                           static_cast<To>(v2.i32Value[4]),        \
-                           static_cast<To>(v2.i32Value[5]),        \
-                           static_cast<To>(v2.i32Value[6]),        \
-                           static_cast<To>(v2.i32Value[7]),        \
-                           static_cast<To>(v3.i32Value[0]),        \
-                           static_cast<To>(v3.i32Value[1]),        \
-                           static_cast<To>(v3.i32Value[2]),        \
-                           static_cast<To>(v3.i32Value[3]),        \
-                           static_cast<To>(v3.i32Value[4]),        \
-                           static_cast<To>(v3.i32Value[5]),        \
-                           static_cast<To>(v3.i32Value[6]),        \
-                           static_cast<To>(v3.i32Value[7]));       \
-        }                                                          \
-    }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, std::int32_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, std::int32_t);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From) \
-    template <typename S>                                          \
-    struct ConvertHelper<To, From, S> final                        \
-    {                                                              \
-        static constexpr SIMD256 run(const SIMD256 &v0,            \
-                                     const SIMD256 &v1,            \
-                                     const SIMD256 &v2,            \
-                                     const SIMD256 &v3) noexcept   \
-        {                                                          \
-            return SIMD256(static_cast<To>(v0.f32Value[0]),        \
-                           static_cast<To>(v0.f32Value[1]),        \
-                           static_cast<To>(v0.f32Value[2]),        \
-                           static_cast<To>(v0.f32Value[3]),        \
-                           static_cast<To>(v0.f32Value[4]),        \
-                           static_cast<To>(v0.f32Value[5]),        \
-                           static_cast<To>(v0.f32Value[6]),        \
-                           static_cast<To>(v0.f32Value[7]),        \
-                           static_cast<To>(v1.f32Value[0]),        \
-                           static_cast<To>(v1.f32Value[1]),        \
-                           static_cast<To>(v1.f32Value[2]),        \
-                           static_cast<To>(v1.f32Value[3]),        \
-                           static_cast<To>(v1.f32Value[4]),        \
-                           static_cast<To>(v1.f32Value[5]),        \
-                           static_cast<To>(v1.f32Value[6]),        \
-                           static_cast<To>(v1.f32Value[7]),        \
-                           static_cast<To>(v2.f32Value[0]),        \
-                           static_cast<To>(v2.f32Value[1]),        \
-                           static_cast<To>(v2.f32Value[2]),        \
-                           static_cast<To>(v2.f32Value[3]),        \
-                           static_cast<To>(v2.f32Value[4]),        \
-                           static_cast<To>(v2.f32Value[5]),        \
-                           static_cast<To>(v2.f32Value[6]),        \
-                           static_cast<To>(v2.f32Value[7]),        \
-                           static_cast<To>(v3.f32Value[0]),        \
-                           static_cast<To>(v3.f32Value[1]),        \
-                           static_cast<To>(v3.f32Value[2]),        \
-                           static_cast<To>(v3.f32Value[3]),        \
-                           static_cast<To>(v3.f32Value[4]),        \
-                           static_cast<To>(v3.f32Value[5]),        \
-                           static_cast<To>(v3.f32Value[6]),        \
-                           static_cast<To>(v3.f32Value[7]));       \
-        }                                                          \
-    }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, float32);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, float32);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From) \
-    template <typename S>                                          \
-    struct ConvertHelper<To, From, S> final                        \
-    {                                                              \
-        static constexpr SIMD256 run(const SIMD256 &v0,            \
-                                     const SIMD256 &v1,            \
-                                     const SIMD256 &v2,            \
-                                     const SIMD256 &v3,            \
-                                     const SIMD256 &v4,            \
-                                     const SIMD256 &v5,            \
-                                     const SIMD256 &v6,            \
-                                     const SIMD256 &v7) noexcept   \
-        {                                                          \
-            return SIMD256(static_cast<To>(v0.u64Value[0]),        \
-                           static_cast<To>(v0.u64Value[1]),        \
-                           static_cast<To>(v0.u64Value[2]),        \
-                           static_cast<To>(v0.u64Value[3]),        \
-                           static_cast<To>(v1.u64Value[0]),        \
-                           static_cast<To>(v1.u64Value[1]),        \
-                           static_cast<To>(v1.u64Value[2]),        \
-                           static_cast<To>(v1.u64Value[3]),        \
-                           static_cast<To>(v2.u64Value[0]),        \
-                           static_cast<To>(v2.u64Value[1]),        \
-                           static_cast<To>(v2.u64Value[2]),        \
-                           static_cast<To>(v2.u64Value[3]),        \
-                           static_cast<To>(v3.u64Value[0]),        \
-                           static_cast<To>(v3.u64Value[1]),        \
-                           static_cast<To>(v3.u64Value[2]),        \
-                           static_cast<To>(v3.u64Value[3]),        \
-                           static_cast<To>(v4.u64Value[0]),        \
-                           static_cast<To>(v4.u64Value[1]),        \
-                           static_cast<To>(v4.u64Value[2]),        \
-                           static_cast<To>(v4.u64Value[3]),        \
-                           static_cast<To>(v5.u64Value[0]),        \
-                           static_cast<To>(v5.u64Value[1]),        \
-                           static_cast<To>(v5.u64Value[2]),        \
-                           static_cast<To>(v5.u64Value[3]),        \
-                           static_cast<To>(v6.u64Value[0]),        \
-                           static_cast<To>(v6.u64Value[1]),        \
-                           static_cast<To>(v6.u64Value[2]),        \
-                           static_cast<To>(v6.u64Value[3]),        \
-                           static_cast<To>(v7.u64Value[0]),        \
-                           static_cast<To>(v7.u64Value[1]),        \
-                           static_cast<To>(v7.u64Value[2]),        \
-                           static_cast<To>(v7.u64Value[3]));       \
-        }                                                          \
-    }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, std::uint64_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, std::uint64_t);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From) \
-    template <typename S>                                          \
-    struct ConvertHelper<To, From, S> final                        \
-    {                                                              \
-        static constexpr SIMD256 run(const SIMD256 &v0,            \
-                                     const SIMD256 &v1,            \
-                                     const SIMD256 &v2,            \
-                                     const SIMD256 &v3,            \
-                                     const SIMD256 &v4,            \
-                                     const SIMD256 &v5,            \
-                                     const SIMD256 &v6,            \
-                                     const SIMD256 &v7) noexcept   \
-        {                                                          \
-            return SIMD256(static_cast<To>(v0.i64Value[0]),        \
-                           static_cast<To>(v0.i64Value[1]),        \
-                           static_cast<To>(v0.i64Value[2]),        \
-                           static_cast<To>(v0.i64Value[3]),        \
-                           static_cast<To>(v1.i64Value[0]),        \
-                           static_cast<To>(v1.i64Value[1]),        \
-                           static_cast<To>(v1.i64Value[2]),        \
-                           static_cast<To>(v1.i64Value[3]),        \
-                           static_cast<To>(v2.i64Value[0]),        \
-                           static_cast<To>(v2.i64Value[1]),        \
-                           static_cast<To>(v2.i64Value[2]),        \
-                           static_cast<To>(v2.i64Value[3]),        \
-                           static_cast<To>(v3.i64Value[0]),        \
-                           static_cast<To>(v3.i64Value[1]),        \
-                           static_cast<To>(v3.i64Value[2]),        \
-                           static_cast<To>(v3.i64Value[3]),        \
-                           static_cast<To>(v4.i64Value[0]),        \
-                           static_cast<To>(v4.i64Value[1]),        \
-                           static_cast<To>(v4.i64Value[2]),        \
-                           static_cast<To>(v4.i64Value[3]),        \
-                           static_cast<To>(v5.i64Value[0]),        \
-                           static_cast<To>(v5.i64Value[1]),        \
-                           static_cast<To>(v5.i64Value[2]),        \
-                           static_cast<To>(v5.i64Value[3]),        \
-                           static_cast<To>(v6.i64Value[0]),        \
-                           static_cast<To>(v6.i64Value[1]),        \
-                           static_cast<To>(v6.i64Value[2]),        \
-                           static_cast<To>(v6.i64Value[3]),        \
-                           static_cast<To>(v7.i64Value[0]),        \
-                           static_cast<To>(v7.i64Value[1]),        \
-                           static_cast<To>(v7.i64Value[2]),        \
-                           static_cast<To>(v7.i64Value[3]));       \
-        }                                                          \
-    }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, std::int64_t);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, std::int64_t);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#define programmerjake_voxels_util_SIMD256_ConvertHelper(To, From) \
-    template <typename S>                                          \
-    struct ConvertHelper<To, From, S> final                        \
-    {                                                              \
-        static constexpr SIMD256 run(const SIMD256 &v0,            \
-                                     const SIMD256 &v1,            \
-                                     const SIMD256 &v2,            \
-                                     const SIMD256 &v3,            \
-                                     const SIMD256 &v4,            \
-                                     const SIMD256 &v5,            \
-                                     const SIMD256 &v6,            \
-                                     const SIMD256 &v7) noexcept   \
-        {                                                          \
-            return SIMD256(static_cast<To>(v0.f64Value[0]),        \
-                           static_cast<To>(v0.f64Value[1]),        \
-                           static_cast<To>(v0.f64Value[2]),        \
-                           static_cast<To>(v0.f64Value[3]),        \
-                           static_cast<To>(v1.f64Value[0]),        \
-                           static_cast<To>(v1.f64Value[1]),        \
-                           static_cast<To>(v1.f64Value[2]),        \
-                           static_cast<To>(v1.f64Value[3]),        \
-                           static_cast<To>(v2.f64Value[0]),        \
-                           static_cast<To>(v2.f64Value[1]),        \
-                           static_cast<To>(v2.f64Value[2]),        \
-                           static_cast<To>(v2.f64Value[3]),        \
-                           static_cast<To>(v3.f64Value[0]),        \
-                           static_cast<To>(v3.f64Value[1]),        \
-                           static_cast<To>(v3.f64Value[2]),        \
-                           static_cast<To>(v3.f64Value[3]),        \
-                           static_cast<To>(v4.f64Value[0]),        \
-                           static_cast<To>(v4.f64Value[1]),        \
-                           static_cast<To>(v4.f64Value[2]),        \
-                           static_cast<To>(v4.f64Value[3]),        \
-                           static_cast<To>(v5.f64Value[0]),        \
-                           static_cast<To>(v5.f64Value[1]),        \
-                           static_cast<To>(v5.f64Value[2]),        \
-                           static_cast<To>(v5.f64Value[3]),        \
-                           static_cast<To>(v6.f64Value[0]),        \
-                           static_cast<To>(v6.f64Value[1]),        \
-                           static_cast<To>(v6.f64Value[2]),        \
-                           static_cast<To>(v6.f64Value[3]),        \
-                           static_cast<To>(v7.f64Value[0]),        \
-                           static_cast<To>(v7.f64Value[1]),        \
-                           static_cast<To>(v7.f64Value[2]),        \
-                           static_cast<To>(v7.f64Value[3]));       \
-        }                                                          \
-    }
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::uint8_t, float64);
-    programmerjake_voxels_util_SIMD256_ConvertHelper(std::int8_t, float64);
-#undef programmerjake_voxels_util_SIMD256_ConvertHelper
-#error finish
     template <typename To,
               typename From,
               typename = typename std::enable_if<sizeof(To) >= sizeof(From)>::type>
@@ -1483,5 +1127,7 @@ programmerjake_voxels_util_SIMD256_BINOP2(SIMD256::BinOp::CmpGE, >= );
 }
 }
 }
+
+#include "simd_generated.h"
 
 #endif /* UTIL_SIMD_H_ */
