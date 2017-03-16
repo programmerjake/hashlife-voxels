@@ -33,6 +33,7 @@
 #include "../graphics/color.h"
 #include <functional>
 #include <vector>
+#include <memory>
 #include <list>
 
 namespace programmerjake
@@ -218,24 +219,76 @@ struct BlockStepExtraAction final
     {
         positionOffset += offset;
     }
-    void run(world::World &theWorld, world::Dimension dimension) const
+    void run(world::World &theWorld, world::Position3I32 position) const
     {
-        actionFunction(theWorld, world::Position3I32(positionOffset, dimension));
+        actionFunction(theWorld, position + positionOffset);
     }
 };
 
 struct BlockStepExtraActions final
 {
-    util::Optional<std::list<BlockStepExtraAction>> actions;
+    struct ActionsTree final
+    {
+        util::Vector3I32 positionOffset;
+        std::shared_ptr<ActionsTree> previousActions;
+        std::shared_ptr<BlockStepExtraAction> action;
+        std::shared_ptr<ActionsTree> followingActions;
+        ActionsTree(util::Vector3I32 positionOffset,
+                    std::shared_ptr<ActionsTree> previousActions,
+                    std::shared_ptr<BlockStepExtraAction> action,
+                    std::shared_ptr<ActionsTree> followingActions) noexcept
+            : positionOffset(positionOffset),
+              previousActions(std::move(previousActions)),
+              action(std::move(action)),
+              followingActions(std::move(followingActions))
+        {
+        }
+        explicit ActionsTree(BlockStepExtraAction action) noexcept
+            : positionOffset(),
+              previousActions(),
+              action(std::make_shared<BlockStepExtraAction>(std::move(action))),
+              followingActions()
+        {
+        }
+        void run(world::World &theWorld, world::Position3I32 position) const
+        {
+            if(previousActions)
+                previousActions->run(theWorld, position + positionOffset);
+            if(action)
+                action->run(theWorld, position + positionOffset);
+            if(followingActions)
+                followingActions->run(theWorld, position + positionOffset);
+        }
+        static std::shared_ptr<ActionsTree> mergeAndAddPositionOffset(
+            std::shared_ptr<ActionsTree> a,
+            std::shared_ptr<ActionsTree> b,
+            util::Vector3I32 offset = util::Vector3I32())
+        {
+            if(!a)
+            {
+                if(!b)
+                    return nullptr;
+                a.swap(b);
+            }
+            if(b)
+                return std::make_shared<ActionsTree>(offset, std::move(a), nullptr, std::move(b));
+            if(offset != util::Vector3I32())
+            {
+                if(a.unique())
+                {
+                    a->positionOffset += offset;
+                    return a;
+                }
+                return std::make_shared<ActionsTree>(offset, std::move(a), nullptr, std::move(b));
+            }
+            return a;
+        }
+    };
+    std::shared_ptr<ActionsTree> actions;
     void merge(BlockStepExtraActions newActions)
     {
-        if(newActions.actions)
-        {
-            if(actions)
-                actions->splice(actions->end(), std::move(*newActions.actions));
-            else
-                actions = std::move(newActions.actions);
-        }
+        actions = ActionsTree::mergeAndAddPositionOffset(std::move(actions),
+                                                         std::move(newActions.actions));
     }
     bool empty() const
     {
@@ -244,34 +297,13 @@ struct BlockStepExtraActions final
     constexpr BlockStepExtraActions() : actions()
     {
     }
-    explicit BlockStepExtraActions(std::list<BlockStepExtraAction> actions)
-        : actions(util::inPlace, std::move(actions))
+    explicit BlockStepExtraActions(BlockStepExtraAction action)
+        : actions(std::make_shared<ActionsTree>(std::move(action)))
     {
-    }
-    explicit BlockStepExtraActions(BlockStepExtraAction action) : actions(util::inPlace)
-    {
-        actions->push_back(std::move(action));
-    }
-    BlockStepExtraActions &operator=(BlockStepExtraActions rt)
-    {
-        actions = std::move(rt.actions);
-        return *this;
-    }
-    BlockStepExtraActions(BlockStepExtraActions &&) = default;
-    BlockStepExtraActions(const BlockStepExtraActions &rt) : actions()
-    {
-        if(rt.actions)
-        {
-            actions.emplace(*rt.actions);
-        }
     }
     BlockStepExtraActions &addOffset(util::Vector3I32 offset) &
     {
-        if(offset != util::Vector3I32(0) && actions)
-        {
-            for(auto &action : *actions)
-                action.addOffset(offset);
-        }
+        actions = ActionsTree::mergeAndAddPositionOffset(std::move(actions), nullptr, offset);
         return *this;
     }
     BlockStepExtraActions &&addOffset(util::Vector3I32 offset) &&
@@ -291,15 +323,14 @@ struct BlockStepExtraActions final
     {
         return BlockStepExtraActions(std::move(*this)) += std::move(rt);
     }
-    void run(world::World &theWorld, world::Dimension dimension) const
+    void run(world::World &theWorld, world::Position3I32 position) const
     {
         if(actions)
-        {
-            for(auto &action : *actions)
-            {
-                action.run(theWorld, dimension);
-            }
-        }
+            actions->run(theWorld, position);
+    }
+    void run(world::World &theWorld, world::Dimension dimension) const
+    {
+        run(theWorld, world::Position3I32(0, dimension));
     }
 };
 

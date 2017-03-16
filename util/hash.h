@@ -170,38 +170,6 @@ public:
         return fastHashFinalize(hasher.v);
     }
 };
-
-struct CollisionResistantHashOutput final
-{
-    constexpr CollisionResistantHashOutput() : a(), b(), c(), d()
-    {
-    }
-    constexpr CollisionResistantHashOutput(std::uint64_t a,
-                                           std::uint64_t b,
-                                           std::uint64_t c,
-                                           std::uint64_t d)
-        : a(a), b(b), c(c), d(d)
-    {
-    }
-    std::uint64_t a, b, c, d;
-    constexpr bool operator==(const CollisionResistantHashOutput &rt) const noexcept
-    {
-        return a == rt.a && b == rt.b && c == rt.c && d == rt.d;
-    }
-    constexpr bool operator!=(const CollisionResistantHashOutput &rt) const noexcept
-    {
-        return !operator==(rt);
-    }
-    constexpr std::size_t hash() const noexcept
-    {
-        return a;
-    }
-};
-
-struct CollisionResistantHasher final
-{
-};
-
 }
 }
 }
