@@ -354,12 +354,6 @@ struct BlockStepPartOutput final
     }
     BlockStepPartOutput(BlockKind blockKind,
                         BlockStepPriority priority,
-                        std::list<BlockStepExtraAction> actions)
-        : blockKind(blockKind), priority(priority), actions(std::move(actions))
-    {
-    }
-    BlockStepPartOutput(BlockKind blockKind,
-                        BlockStepPriority priority,
                         BlockStepExtraAction action)
         : blockKind(blockKind), priority(priority), actions(std::move(action))
     {
@@ -369,10 +363,6 @@ struct BlockStepPartOutput final
     {
     }
     BlockStepPartOutput(BlockKind blockKind, BlockStepExtraActions actions)
-        : blockKind(blockKind), priority(), actions(std::move(actions))
-    {
-    }
-    BlockStepPartOutput(BlockKind blockKind, std::list<BlockStepExtraAction> actions)
         : blockKind(blockKind), priority(), actions(std::move(actions))
     {
     }

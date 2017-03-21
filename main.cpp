@@ -177,7 +177,7 @@ int main()
     struct QuitException
     {
     };
-#if 0
+#if 1
 #if 0
     world::initAll(new graphics::drivers::VulkanDriver);
 #else

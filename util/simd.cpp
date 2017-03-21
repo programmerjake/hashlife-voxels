@@ -29,7 +29,7 @@ namespace voxels
 {
 namespace util
 {
-#if 1
+#if 0
 namespace
 {
 template <typename T>
