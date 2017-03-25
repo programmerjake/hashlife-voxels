@@ -25,6 +25,13 @@
 #include "../util/integer_sequence.h"
 #include <tuple>
 #include <limits>
+#include <memory>
+#include <functional>
+#include <type_traits>
+#include <mutex>
+#include <cstdint>
+#include <new>
+#include "../util/bitset.h"
 
 namespace programmerjake
 {
@@ -42,33 +49,10 @@ constexpr std::size_t MaxLevel = 32 - 2;
 
 struct MemoryManagerNodeBase
 {
-    template <std::size_t Level, typename DerivedType>
-    friend struct NodeBase;
-    friend class MemoryManager;
-
-private:
-    static constexpr unsigned getNeededBitCount(std::size_t maxValue) noexcept
-    {
-        return maxValue == 0 ? 0 : 1 + getNeededBitCount(maxValue >> 1);
-    }
-    static constexpr unsigned levelBits = getNeededBitCount(MaxLevel);
-    std::size_t level : levelBits;
     bool gcMark : 1;
-
-private:
-    template <typename Fn, std::size_t... Levels>
-    static void dispatchHelper(const MemoryManagerNodeBase *node,
-                               Fn &fn,
-                               util::IntegerSequence<std::size_t, Levels...>);
-    template <typename Fn>
-    static void dispatch(const MemoryManagerNodeBase *node, Fn &&fn)
+    constexpr MemoryManagerNodeBase() noexcept : gcMark(false)
     {
-        dispatchHelper<Fn>(node, fn, util::MakeIndexSequence<MaxLevel + 1>());
     }
-
-private:
-    template <std::size_t Level>
-    constexpr MemoryManagerNodeBase(Node<Level> *) noexcept;
 };
 }
 }
@@ -86,39 +70,101 @@ namespace world
 namespace parallel_hashlife
 {
 static_assert(Node<MaxLevel>::size != 0, "MaxLevel too big");
-
-template <typename Fn, std::size_t... Levels>
-void MemoryManagerNodeBase::dispatchHelper(const MemoryManagerNodeBase *node,
-                                           Fn &fn,
-                                           util::IntegerSequence<std::size_t, Levels...>)
-{
-    typedef void (*DispatchFnType)(const MemoryManagerNodeBase *node, Fn &fn);
-    static const DispatchFnType functions[] = {
-        static_cast<DispatchFnType>([](const MemoryManagerNodeBase *node, Fn &fn)
-                                    {
-                                        fn(static_cast<const Node<Levels> *>(node));
-                                    })...};
-    return functions[node->level](node, fn);
-}
-
-template <std::size_t Level>
-constexpr MemoryManagerNodeBase::MemoryManagerNodeBase(Node<Level> *) noexcept : level(Level),
-                                                                                 gcMark(false)
-{
-    static_assert(Level <= MaxLevel, "level too big");
-}
-
 class MemoryManager final
 {
 private:
-    struct NodeBase
+    struct NodeGroupBase
     {
-#error finish
+        NodeGroupBase(const NodeGroupBase &) = delete;
+        NodeGroupBase &operator=(const NodeGroupBase &) = delete;
+        virtual ~NodeGroupBase() = default;
+        const MemoryManagerNodeBase *const startAddress;
+        const MemoryManagerNodeBase *const endAddress;
+        const std::size_t level;
+        std::size_t nextAllocateIndex;
+        std::size_t usedCount;
+        constexpr NodeGroupBase(const MemoryManagerNodeBase *const startAddress,
+                                const MemoryManagerNodeBase *const endAddress,
+                                std::size_t level) noexcept : startAddress(startAddress),
+                                                              endAddress(endAddress),
+                                                              level(level),
+                                                              nextAllocateIndex(0),
+                                                              usedCount(0)
+        {
+        }
     };
+    struct NodeGroupBasePointerLess
+    {
+        template <
+            typename T1,
+            typename T2,
+            typename = typename std::enable_if<std::is_base_of<NodeGroupBase, T1>::value
+                                               && std::is_base_of<NodeGroupBase, T2>::value>::type>
+        bool operator()(const std::unique_ptr<T1> &a, const std::unique_ptr<T2> &b) const noexcept
+        {
+            return std::less<const NodeGroupBase *>()(a.get(), b.get());
+        }
+        template <
+            typename T,
+            typename = typename std::enable_if<std::is_base_of<NodeGroupBase, T>::value>::type>
+        bool operator()(const std::unique_ptr<T> &a, const NodeGroupBase *b) const noexcept
+        {
+            return std::less<const NodeGroupBase *>()(a.get(), b);
+        }
+        template <
+            typename T,
+            typename = typename std::enable_if<std::is_base_of<NodeGroupBase, T>::value>::type>
+        bool operator()(const NodeGroupBase *a, const std::unique_ptr<T> &b) const noexcept
+        {
+            return std::less<const NodeGroupBase *>()(a, b.get());
+        }
+        bool operator()(const NodeGroupBase *a, const NodeGroupBase *b) const noexcept
+        {
+            return std::less<const NodeGroupBase *>()(a, b);
+        }
+    };
+    static constexpr std::size_t nodeGroupSizeTarget = 1UL << 20; // 1MiB
+    template <std::size_t Level>
+    struct NodeGroup final : public NodeGroupBase
+    {
+        typedef Node<Level> NodeType;
+        static constexpr std::size_t allocatedCount =
+            (nodeGroupSizeTarget - sizeof(NodeGroupBase)) / sizeof(NodeType);
+        static_assert(allocatedCount != 0, "nodeGroupSizeTarget is too small");
+        typename std::aligned_storage<sizeof(Node<Level>), alignof(Node<Level>)>::type
+            nodes[allocatedCount];
+        util::BitSet<allocatedCount> usedBits;
+        Node<Level> *allocate(const typename Node<Level>::Key &key,
+                              const block::BlockSummary &blockSummary) noexcept
+        {
+            if(usedCount >= allocatedCount)
+                return nullptr;
+            usedBits._Find_first();
+#error finish
+            std::size_t index = nextAllocateIndexAtomic.load(std::memory_order_relaxed);
+            while(index < allocatedCount)
+            {
+                std::size_t nextIndex = index + 1;
+                if(nextAllocateIndexAtomic.compare_exchange_weak(
+                       index, nextIndex, std::memory_order_acquire, std::memory_order_relaxed))
+                    return ::new(&nodes[index]) Node<Level>(key, blockSummary);
+            }
+            return nullptr;
+        }
+        virtual ~NodeGroup() override
+        {
+            std::size_t usedCount = nextAllocateIndexAtomic.load(std::memory_order_relaxed);
+            for(std::size_t i = usedCount; i > 0; i--)
+            {
+                reinterpret_cast<Node<Level> &>(nodes[i - 1]).~Node<Level>();
+            }
+        }
+    };
+    std::vector<std::unique_ptr<>>
 
-public:
-    template <std::size_t... ArgLevels>
-    void collectGarbage(const std::tuple<Node<ArgLevels> *...> &roots) noexcept
+        public : template <std::size_t... ArgLevels>
+                 void
+                 collectGarbage(const std::tuple<Node<ArgLevels> *...> &roots) noexcept
     {
 #error finish
     }
