@@ -36,15 +36,26 @@ namespace voxels
 {
 namespace util
 {
-class BitSetNontemplateBase
+class BitSetNontemplateBaseHelper
 {
 protected:
-    typedef std::uintptr_t WordType;
-    static constexpr std::size_t wordBitCount = std::numeric_limits<WordType>::digits;
     static constexpr bool isPowerOf2(std::size_t v) noexcept
     {
-        return v & (v - 1) == 0;
+        return (v & (v - 1)) == 0;
     }
+};
+
+template <std::size_t BitCount>
+class BitSet;
+
+struct BitSetNontemplateBase : public BitSetNontemplateBaseHelper
+{
+protected:
+    struct Tester;
+
+public:
+    typedef std::uintptr_t WordType;
+    static constexpr std::size_t wordBitCount = std::numeric_limits<WordType>::digits;
     static_assert(isPowerOf2(wordBitCount), "wordBitCount is not a power of 2");
     static constexpr std::size_t constexprMin(std::size_t a, std::size_t b) noexcept
     {
@@ -65,11 +76,8 @@ protected:
 };
 
 template <std::size_t WordCount>
-class BitSetBase : public BitSetNontemplateBase
+class BitSetBase : protected BitSetNontemplateBase
 {
-    template <std::size_t BitCount>
-    friend struct std::hash<programmerjake::voxels::util::BitSet<BitCount>>;
-
 protected:
     static constexpr std::size_t wordCount = WordCount;
     WordType words[WordCount]; // little endian order
@@ -91,6 +99,15 @@ protected:
     {
         words[wordIndex] = wordValue;
     }
+    template <std::size_t... Indexes>
+    constexpr bool equalsHelper(const BitSetBase &rt, IntegerSequence<std::size_t, Indexes...>)
+    {
+        return std::array<WordType, wordCount>{words[Indexes]...} == std::array<WordType, wordCount>{rt.words[Indexes]...};
+    }
+    constexpr bool equals(const BitSetBase &rt) const noexcept
+    {
+        return equalsHelper(rt, MakeIndexSequence<wordCount>());
+    }
 
 private:
     template <std::size_t... Indexes>
@@ -103,11 +120,8 @@ private:
 };
 
 template <>
-class BitSetBase<0> : public BitSetNontemplateBase
+class BitSetBase<0> : protected BitSetNontemplateBase
 {
-    template <std::size_t BitCount>
-    friend struct std::hash<programmerjake::voxels::util::BitSet<BitCount>>;
-
 protected:
     static constexpr std::size_t wordCount = 0;
     constexpr BitSetBase() noexcept
@@ -125,6 +139,10 @@ protected:
         static_cast<void>(wordIndex);
         static_cast<void>(wordValue);
     }
+    constexpr bool equals(const BitSetBase &rt) const noexcept
+    {
+        return true;
+    }
 
 public:
     unsigned long long to_ullong() const
@@ -137,8 +155,17 @@ template <std::size_t BitCount>
 class BitSet final : public BitSetBase<BitSetNontemplateBase::getWordCount(BitCount)>
 {
 private:
+    friend struct BitSetNontemplateBase::Tester;
     static constexpr std::size_t bitCount = BitCount;
     typedef BitSetBase<BitSetNontemplateBase::getWordCount(BitCount)> Base;
+    using typename Base::WordType;
+    using Base::wordCount;
+    using Base::getWord;
+    using Base::setWord;
+    using Base::getWordCount;
+    using Base::getWordMask;
+    using Base::getWordIndex;
+    using Base::wordBitCount;
 
 private:
     constexpr WordType getWordChecked(std::size_t wordIndex) const noexcept
@@ -205,11 +232,11 @@ public:
     };
     constexpr bool operator==(const BitSet &rt) const noexcept
     {
-        return words == rt.words;
+        return this->equals(rt);
     }
     constexpr bool operator!=(const BitSet &rt) const noexcept
     {
-        return words != rt.words;
+        return !this->equals(rt);
     }
     Reference operator[](std::size_t bitIndex) noexcept
     {
@@ -217,7 +244,7 @@ public:
     }
     constexpr bool operator[](std::size_t bitIndex) const noexcept
     {
-        return getWordMask(bitIndex) & words[getWordIndex(bitIndex)];
+        return getWordMask(bitIndex) & getWord(getWordIndex(bitIndex));
     }
     bool test(std::size_t bitIndex) const
     {
@@ -471,7 +498,7 @@ public:
         std::size_t retval = endWordIndex * wordBitCount;
         for(; mask != 0; mask <<= 1, retval++)
         {
-            if(word & mask)
+            if(endWord & mask)
                 break;
         }
         return retval;
@@ -512,7 +539,16 @@ public:
         }
         return npos;
     }
-#warning need to test BitSet
+    std::size_t hash() const noexcept
+    {
+        FastHasher hasher;
+        for(std::size_t i = 0; i < wordCount; i++)
+        {
+            hasher = next(hasher, getWord(i));
+        }
+        return finish(hasher);
+    }
+#warning finish testing BitSet
 };
 
 template <std::size_t BitCount>
@@ -529,12 +565,7 @@ struct hash<programmerjake::voxels::util::BitSet<BitCount>>
     std::size_t operator()(const programmerjake::voxels::util::BitSet<BitCount> &bitSet) const
         noexcept
     {
-        programmerjake::voxels::util::FastHasher hasher;
-        for(std::size_t i = 0; i < bitSet.wordCount; i++)
-        {
-            hasher = next(hasher, bitSet.getWord(i));
-        }
-        return finish(hasher);
+        return bitSet.hash();
     }
 };
 }
