@@ -31,6 +31,7 @@
 #include <mutex>
 #include <cstdint>
 #include <new>
+#include <cassert>
 #include "../util/bitset.h"
 
 namespace programmerjake
@@ -133,30 +134,45 @@ private:
         static_assert(allocatedCount != 0, "nodeGroupSizeTarget is too small");
         typename std::aligned_storage<sizeof(Node<Level>), alignof(Node<Level>)>::type
             nodes[allocatedCount];
-        util::BitSet<allocatedCount> usedBits;
+        util::BitSet<allocatedCount> usedSet;
+        std::size_t lastAllocateIndex;
+        NodeGroup() noexcept : NodeGroupBase(nodes, nodes + allocatedCount, Level),
+                               nodes(),
+                               usedSet(),
+                               lastAllocateIndex(0)
+        {
+            usedSet.set();
+        }
         Node<Level> *allocate(const typename Node<Level>::Key &key,
                               const block::BlockSummary &blockSummary) noexcept
         {
-            if(usedCount >= allocatedCount)
-                return nullptr;
-            usedBits._Find_first();
-#error finish
-            std::size_t index = nextAllocateIndexAtomic.load(std::memory_order_relaxed);
-            while(index < allocatedCount)
+            std::size_t index = usedSet.findFirst(false, lastAllocateIndex);
+            if(index >= allocatedCount)
             {
-                std::size_t nextIndex = index + 1;
-                if(nextAllocateIndexAtomic.compare_exchange_weak(
-                       index, nextIndex, std::memory_order_acquire, std::memory_order_relaxed))
-                    return ::new(&nodes[index]) Node<Level>(key, blockSummary);
+                index = usedSet.findLast(false, lastAllocateIndex);
+                if(index >= allocatedCount)
+                {
+                    lastAllocateIndex = 0;
+                    return nullptr;
+                }
             }
-            return nullptr;
+            lastAllocateIndex = index;
+            return ::new(&nodes[index]) Node<Level>(key, blockSummary);
+        }
+        void free(Node<Level> *node) noexcept
+        {
+            std::size_t index = node - nodes;
+            assert(index < allocatedCount && node == nodes + index);
+            assert(usedSet[index]);
+            reinterpret_cast<Node<Level> &>(nodes[index]).~Node<Level>();
+            usedSet[index] = false;
         }
         virtual ~NodeGroup() override
         {
-            std::size_t usedCount = nextAllocateIndexAtomic.load(std::memory_order_relaxed);
-            for(std::size_t i = usedCount; i > 0; i--)
+            for(std::size_t i = allocatedCount; i > 0; i--)
             {
-                reinterpret_cast<Node<Level> &>(nodes[i - 1]).~Node<Level>();
+                if(usedSet[i - 1])
+                    reinterpret_cast<Node<Level> &>(nodes[i - 1]).~Node<Level>();
             }
         }
     };
