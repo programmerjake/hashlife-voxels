@@ -99,14 +99,13 @@ protected:
     {
         words[wordIndex] = wordValue;
     }
-    template <std::size_t... Indexes>
-    constexpr bool equalsHelper(const BitSetBase &rt, IntegerSequence<std::size_t, Indexes...>)
+    bool equals(const BitSetBase &rt) const noexcept
     {
-        return std::array<WordType, wordCount>{words[Indexes]...} == std::array<WordType, wordCount>{rt.words[Indexes]...};
-    }
-    constexpr bool equals(const BitSetBase &rt) const noexcept
-    {
-        return equalsHelper(rt, MakeIndexSequence<wordCount>());
+        for(std::size_t i = 0; i < wordCount; i++)
+            if(words[i] != rt.words[i])
+                return false;
+        return true;
+        ;
     }
 
 private:
@@ -139,7 +138,7 @@ protected:
         static_cast<void>(wordIndex);
         static_cast<void>(wordValue);
     }
-    constexpr bool equals(const BitSetBase &rt) const noexcept
+    bool equals(const BitSetBase &rt) const noexcept
     {
         return true;
     }
@@ -230,11 +229,11 @@ public:
             return *this;
         }
     };
-    constexpr bool operator==(const BitSet &rt) const noexcept
+    bool operator==(const BitSet &rt) const noexcept
     {
         return this->equals(rt);
     }
-    constexpr bool operator!=(const BitSet &rt) const noexcept
+    bool operator!=(const BitSet &rt) const noexcept
     {
         return !this->equals(rt);
     }
@@ -254,6 +253,8 @@ public:
     }
     bool all() const noexcept
     {
+        if(bitCount == 0)
+            return true;
         for(std::size_t i = 0; i < getWordIndex(bitCount - 1); i++)
             if(getWord(i) != static_cast<WordType>(-1))
                 return false;
@@ -262,6 +263,8 @@ public:
     }
     bool any() const noexcept
     {
+        if(bitCount == 0)
+            return false;
         for(std::size_t i = 0; i < getWordIndex(bitCount - 1); i++)
             if(getWord(i) != 0)
                 return true;
@@ -330,6 +333,8 @@ public:
     }
     BitSet &operator<<=(std::size_t shiftCount) noexcept
     {
+        if(shiftCount >= bitCount)
+            return reset();
         std::size_t shiftWordCount = shiftCount / wordBitCount;
         std::size_t shiftBitCount = shiftCount % wordBitCount;
         if(shiftBitCount == 0)
@@ -351,6 +356,11 @@ public:
                         (lowWord >> (wordBitCount - shiftBitCount)) | (highWord << shiftBitCount));
             }
         }
+        if(wordCount != 0)
+            setWord(wordCount - 1,
+                    getWord(wordCount - 1)
+                        & static_cast<WordType>(
+                              static_cast<WordType>(getWordMask(bitCount - 1) << 1) - 1));
         return *this;
     }
     BitSet operator<<(std::size_t shiftCount) const noexcept
@@ -361,6 +371,8 @@ public:
     }
     BitSet &operator>>=(std::size_t shiftCount) noexcept
     {
+        if(shiftCount >= bitCount)
+            return reset();
         std::size_t shiftWordCount = shiftCount / wordBitCount;
         std::size_t shiftBitCount = shiftCount % wordBitCount;
         if(shiftBitCount == 0)
@@ -390,6 +402,8 @@ public:
     }
     BitSet &set() noexcept
     {
+        if(wordCount == 0)
+            return *this;
         for(std::size_t i = 0; i < getWordIndex(bitCount - 1); i++)
             setWord(i, static_cast<WordType>(-1));
         setWord(getWordIndex(bitCount - 1),
@@ -474,11 +488,15 @@ public:
             if(startWord & mask)
                 return retval;
         }
+        if(startWordIndex == endWordIndex)
+            return npos;
         for(std::size_t wordIndex = startWordIndex + 1; wordIndex < endWordIndex; wordIndex++)
         {
             auto word = getWord(wordIndex);
             if(word == static_cast<WordType>(value ? 0 : -1))
                 continue;
+            if(!value)
+                word = ~word;
             mask = 1;
             std::size_t retval = wordIndex * wordBitCount;
             for(; mask != 0; mask <<= 1, retval++)
@@ -505,6 +523,8 @@ public:
     }
     std::size_t findLast(bool value, std::size_t start = npos) const noexcept
     {
+        if(bitCount == 0)
+            return npos;
         if(start >= bitCount)
             start = bitCount - 1;
         std::size_t startWordIndex = getWordIndex(start);
@@ -528,9 +548,11 @@ public:
             auto word = getWord(wordIndex);
             if(word == static_cast<WordType>(value ? 0 : -1))
                 continue;
+            if(!value)
+                word = ~word;
             mask = getWordMask(wordBitCount - 1);
-            std::size_t retval = wordIndex * wordBitCount;
-            for(; mask != 0; mask <<= 1, retval++)
+            std::size_t retval = wordIndex * wordBitCount + (wordBitCount - 1);
+            for(; mask != 0; mask >>= 1, retval--)
             {
                 if(word & mask)
                     break;
@@ -548,7 +570,6 @@ public:
         }
         return finish(hasher);
     }
-#warning finish testing BitSet
 };
 
 template <std::size_t BitCount>
