@@ -32,34 +32,9 @@
 #include <cstdint>
 #include <new>
 #include <cassert>
+#include <deque>
+#include <random>
 #include "../util/bitset.h"
-
-namespace programmerjake
-{
-namespace voxels
-{
-namespace world
-{
-namespace parallel_hashlife
-{
-template <std::size_t Level, typename DerivedType>
-struct NodeBase;
-class MemoryManager;
-
-constexpr std::size_t MaxLevel = 32 - 2;
-
-struct MemoryManagerNodeBase
-{
-    bool gcMark : 1;
-    constexpr MemoryManagerNodeBase() noexcept : gcMark(false)
-    {
-    }
-};
-}
-}
-}
-}
-
 #include "parallel_hashlife_node.h"
 
 namespace programmerjake
@@ -71,6 +46,7 @@ namespace world
 namespace parallel_hashlife
 {
 static_assert(Node<MaxLevel>::size != 0, "MaxLevel too big");
+
 class MemoryManager final
 {
 private:
@@ -94,34 +70,30 @@ private:
         {
         }
     };
-    struct NodeGroupBasePointerLess
+    struct NodeGroupListEntry final
     {
-        template <
-            typename T1,
-            typename T2,
-            typename = typename std::enable_if<std::is_base_of<NodeGroupBase, T1>::value
-                                               && std::is_base_of<NodeGroupBase, T2>::value>::type>
-        bool operator()(const std::unique_ptr<T1> &a, const std::unique_ptr<T2> &b) const noexcept
+        std::shared_ptr<NodeGroupBase> nodeGroup;
+        const MemoryManagerNodeBase *startAddress;
+        const MemoryManagerNodeBase *endAddress;
+        std::size_t level;
+        explicit NodeGroupListEntry(std::shared_ptr<NodeGroupBase> nodeGroup) noexcept
+            : nodeGroup(std::move(nodeGroup)),
+              startAddress(this->nodeGroup->startAddress),
+              endAddress(this->nodeGroup->endAddress),
+              level(this->nodeGroup->level)
         {
-            return std::less<const NodeGroupBase *>()(a.get(), b.get());
         }
-        template <
-            typename T,
-            typename = typename std::enable_if<std::is_base_of<NodeGroupBase, T>::value>::type>
-        bool operator()(const std::unique_ptr<T> &a, const NodeGroupBase *b) const noexcept
+        bool contained(const MemoryManagerNodeBase *address) const noexcept
         {
-            return std::less<const NodeGroupBase *>()(a.get(), b);
+            typedef std::less<const MemoryManagerNodeBase *> nodePtrLess;
+            return !nodePtrLess()(address, startAddress) && nodePtrLess()(address, endAddress);
         }
-        template <
-            typename T,
-            typename = typename std::enable_if<std::is_base_of<NodeGroupBase, T>::value>::type>
-        bool operator()(const NodeGroupBase *a, const std::unique_ptr<T> &b) const noexcept
+    };
+    struct NodeGroupListEntryLess
+    {
+        bool operator()(const NodeGroupListEntry &a, const NodeGroupListEntry &b) const noexcept
         {
-            return std::less<const NodeGroupBase *>()(a, b.get());
-        }
-        bool operator()(const NodeGroupBase *a, const NodeGroupBase *b) const noexcept
-        {
-            return std::less<const NodeGroupBase *>()(a, b);
+            return std::less<const MemoryManagerNodeBase *>()(a.startAddress, b.startAddress);
         }
     };
     static constexpr std::size_t nodeGroupSizeTarget = 1UL << 20; // 1MiB
@@ -157,15 +129,30 @@ private:
                 }
             }
             lastAllocateIndex = index;
+            usedCount++;
             return ::new(&nodes[index]) Node<Level>(key, blockSummary);
         }
         void free(Node<Level> *node) noexcept
         {
-            std::size_t index = node - nodes;
-            assert(index < allocatedCount && node == nodes + index);
+            std::size_t index = node - reinterpret_cast<Node<Level> *>(nodes);
+            assert(index < allocatedCount
+                   && node == reinterpret_cast<Node<Level> *>(nodes) + index);
             assert(usedSet[index]);
             reinterpret_cast<Node<Level> &>(nodes[index]).~Node<Level>();
             usedSet[index] = false;
+            usedCount--;
+        }
+        template <typename Fn>
+        void forEachAllocated(Fn &&fn) noexcept(noexcept(fn(static_cast<Node<Level> *>(nullptr))))
+        {
+            // must work when fn modifies this NodeGroup
+            if(usedCount == 0)
+                return;
+            for(std::size_t index = usedSet.findFirst(true); index != usedSet.npos;
+                index = usedSet.findFirst(true, index + 1))
+            {
+                fn(reinterpret_cast<Node<Level> *>(&nodes[index]));
+            }
         }
         virtual ~NodeGroup() override
         {
@@ -176,13 +163,169 @@ private:
             }
         }
     };
-    std::vector<std::unique_ptr<>>
-
-        public : template <std::size_t... ArgLevels>
-                 void
-                 collectGarbage(const std::tuple<Node<ArgLevels> *...> &roots) noexcept
+    std::array<std::vector<NodeGroupListEntry>, LevelCount> nodeGroupLists;
+    template <typename Runner, std::size_t... Levels>
+    static void runForEachLevelHelper(
+        Runner &runner,
+        util::IntegerSequence<std::size_t,
+                              Levels...>) noexcept(noexcept(std::initializer_list<char>{
+        (static_cast<void>(runner.template run<Levels>()), '\0')...}))
     {
-#error finish
+        std::initializer_list<char>{(static_cast<void>(runner.template run<Levels>()), '\0')...};
+    }
+    template <typename Runner>
+    static void runForEachLevel(Runner &&runner) noexcept(
+        noexcept(runForEachLevelHelper<Runner>(runner, util::MakeIndexSequence<LevelCount>())))
+    {
+        runForEachLevelHelper<Runner>(runner, util::MakeIndexSequence<LevelCount>());
+    }
+    template <typename Runner>
+    struct RunForEachNode
+    {
+        Runner &runner;
+        MemoryManager *memoryManager;
+        constexpr RunForEachNode(Runner &runner, MemoryManager *memoryManager) noexcept
+            : runner(runner),
+              memoryManager(memoryManager)
+        {
+        }
+        template <std::size_t Level>
+        void run() const noexcept(noexcept(std::declval<Runner &>().run(
+            static_cast<Node<Level> *>(nullptr), static_cast<NodeGroup<Level> *>(nullptr))))
+        {
+            auto &nodeGroupList = memoryManager->nodeGroupLists[Level];
+            for(NodeGroupListEntry &nodeGroupListEntry : nodeGroupList)
+            {
+                auto *nodeGroupBase = nodeGroupListEntry.nodeGroup.get();
+                assert(dynamic_cast<NodeGroup<Level> *>(nodeGroupBase));
+                NodeGroup<Level> *nodeGroup = static_cast<NodeGroup<Level> *>(nodeGroupBase);
+                nodeGroup->forEachAllocated([&](Node<Level> *node)
+                                            {
+                                                runner.run(node, nodeGroup);
+                                            });
+            }
+        }
+    };
+    template <typename Runner>
+    void runForEachNode(Runner &&runner) noexcept(
+        noexcept(runForEachLevel(std::declval<RunForEachNode<Runner>>())))
+    {
+        runForEachLevel(RunForEachNode<Runner>(runner, this));
+    }
+    struct GCState final
+    {
+        std::array<std::deque<MemoryManagerNodeBase *>, LevelCount> worklists;
+        std::default_random_engine randomEngine;
+        explicit GCState(std::default_random_engine &globalRandomEngine)
+            : worklists(), randomEngine()
+        {
+            randomEngine.seed(globalRandomEngine());
+        }
+    };
+    template <std::size_t Level>
+    static void visitNode(GCState &gcState, Node<Level> *node)
+    {
+        if(!node)
+            return;
+        if(node->gcMark)
+            return;
+        node->gcMark = true;
+        gcState.worklists[Level].push_back(node);
+    }
+    struct GCRootsBase
+    {
+        virtual ~GCRootsBase() = default;
+        virtual void visit(GCState &gcState) const = 0;
+    };
+    template <std::size_t... ArgLevels>
+    struct GCRoots final
+    {
+        const std::tuple<Node<ArgLevels> *...> *roots;
+        constexpr explicit GCRoots(const std::tuple<Node<ArgLevels> *...> *roots) noexcept
+            : roots(roots)
+        {
+        }
+        template <std::size_t... ArgIndexes>
+        void visitHelper(GCState &gcState, util::IntegerSequence<std::size_t, ArgIndexes...>) const
+        {
+            std::initializer_list<char>{
+                (visitNode(gcState, std::get<ArgIndexes>(*roots)), '\0')...};
+        }
+        virtual void visit(GCState &gcState) const override
+        {
+            visitHelper(gcState, util::MakeIndexSequence<sizeof...(ArgLevels)>());
+        }
+    };
+    struct CollectGarbageRunTraceAndSweep
+    {
+        GCState &gcState;
+        MemoryManager *memoryManager;
+        constexpr CollectGarbageRunTraceAndSweep(GCState &gcState,
+                                                 MemoryManager *memoryManager) noexcept
+            : gcState(gcState),
+              memoryManager(memoryManager)
+        {
+        }
+        struct NodeVisitor final
+        {
+            GCState &gcState;
+            constexpr explicit NodeVisitor(GCState &gcState) noexcept : gcState(gcState)
+            {
+            }
+            template <std::size_t Level>
+            bool operator()(Node<Level> *node) const
+            {
+                visitNode(gcState, node);
+                return true;
+            }
+            bool operator()(Node<0>::KeyElement) const
+            {
+                return true;
+            }
+        };
+        template <std::size_t LevelIn>
+        void run() const
+        {
+            constexpr std::size_t level = LevelCount - 1 - LevelIn;
+            static_assert(level < LevelCount, "");
+            auto &worklist = gcState.worklists[level];
+            std::default_random_engine randomEngine; // local for extra speed
+            randomEngine.seed(gcState.randomEngine());
+            while(!worklist.empty())
+            {
+                auto *nodeBase = worklist.back();
+                worklist.pop_back();
+                auto *node = static_cast<Node<level> *>(nodeBase);
+                node->trace(NodeVisitor(gcState));
+            }
+            auto &nodeGroupList = memoryManager->nodeGroupLists[level];
+            for(NodeGroupListEntry &nodeGroupListEntry : nodeGroupList)
+            {
+                auto *nodeGroupBase = nodeGroupListEntry.nodeGroup.get();
+                assert(dynamic_cast<NodeGroup<level> *>(nodeGroupBase));
+                NodeGroup<level> *nodeGroup = static_cast<NodeGroup<level> *>(nodeGroupBase);
+                nodeGroup->forEachAllocated(
+                    [&](Node<level> *node)
+                    {
+                        if(node->gcMark)
+                            return;
+                        bool keepNode = std::uniform_int_distribution<int>(0, 10)(randomEngine) > 7;
+                        if(keepNode)
+                            node->trace(NodeVisitor(gcState)); // trace so we don't lose children
+                        else
+                            nodeGroup->free(node);
+                    });
+            }
+        }
+    };
+    std::default_random_engine garbageCollectRandomEngine;
+    void collectGarbage(const GCRootsBase &roots);
+
+public:
+    template <std::size_t... ArgLevels>
+    void collectGarbage(const std::tuple<Node<ArgLevels> *...> &roots)
+    {
+        collectGarbage(GCRoots<ArgLevels...>(&roots));
     }
 };
 }

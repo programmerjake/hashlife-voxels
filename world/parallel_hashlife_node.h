@@ -18,7 +18,6 @@
  * MA 02110-1301, USA.
  *
  */
-#include "parallel_hashlife_memory_manager.h"
 #ifndef WORLD_PARALLEL_HASHLIFE_NODE_H_
 #define WORLD_PARALLEL_HASHLIFE_NODE_H_
 
@@ -46,6 +45,21 @@ namespace world
 {
 namespace parallel_hashlife
 {
+template <std::size_t Level, typename DerivedType>
+struct NodeBase;
+class MemoryManager;
+
+constexpr std::size_t MaxLevel = 32 - 2;
+constexpr std::size_t LevelCount = MaxLevel + 1;
+
+struct MemoryManagerNodeBase
+{
+    bool gcMark : 1;
+    constexpr MemoryManagerNodeBase() noexcept : gcMark(false)
+    {
+    }
+};
+
 enum class StepKind
 {
     General,
@@ -58,7 +72,6 @@ struct Node;
 template <std::size_t Level, typename DerivedType>
 struct NodeBase : public MemoryManagerNodeBase
 {
-    static_assert(std::is_base_of<NodeBase, DerivedType>::value, "");
     static_assert(std::is_same<Node<Level>, DerivedType>::value, "");
     static constexpr std::size_t level = Level;
     static constexpr std::uint32_t halfSize = 1UL << level;
@@ -128,8 +141,11 @@ template <std::size_t Level, typename DerivedType>
 constexpr bool NodeBase<Level, DerivedType>::isLeaf;
 
 template <std::size_t Level>
-struct Node final : public NodeBase<Level, Node>
+struct Node final : public NodeBase<Level, Node<Level>>
 {
+    using NodeBase<Level, Node>::halfSize;
+    using NodeBase<Level, Node>::key;
+    using typename NodeBase<Level, Node>::KeyElement;
     static constexpr std::uint32_t quarterSize = halfSize / 2U;
     static_assert(quarterSize != 0, "level too small");
     using NodeBase<Level, Node>::NodeBase;
@@ -162,7 +178,7 @@ struct Node final : public NodeBase<Level, Node>
         }
         for(auto &value : nextStates)
         {
-            if(fn(value))
+            if(fn(value.next))
                 continue;
             return false;
         }
@@ -171,7 +187,7 @@ struct Node final : public NodeBase<Level, Node>
 };
 
 template <>
-struct Node<0> final : public NodeBase<0, Node>
+struct Node<0> final : public NodeBase<0, Node<0>>
 {
     // no quarterSize because it is too small
     using NodeBase<0, Node>::NodeBase;
