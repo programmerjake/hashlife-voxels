@@ -232,28 +232,36 @@ private:
         node->gcMark = true;
         gcState.worklists[Level].push_back(node);
     }
-    struct GCRootsBase
+    struct GCRootVisitor final
     {
-        virtual ~GCRootsBase() = default;
-        virtual void visit(GCState &gcState) const = 0;
+        GCState &gcState;
+        constexpr explicit GCRootVisitor(GCState &gcState) noexcept : gcState(gcState)
+        {
+        }
+        template <std::size_t Level>
+        void operator()(Node<Level> *node) const
+        {
+            visitNode(gcState, node);
+        }
+        void operator()(std::nullptr_t) const noexcept
+        {
+        }
     };
-    template <std::size_t... ArgLevels>
-    struct GCRoots final
+    struct GCRoots
     {
-        const std::tuple<Node<ArgLevels> *...> *roots;
-        constexpr explicit GCRoots(const std::tuple<Node<ArgLevels> *...> *roots) noexcept
-            : roots(roots)
+        const DynamicNonowningNodeReference *roots;
+        std::size_t rootCount;
+        constexpr GCRoots(const DynamicNonowningNodeReference *roots, std::size_t rootCount) noexcept
+            : roots(roots),
+              rootCount(rootCount)
         {
         }
-        template <std::size_t... ArgIndexes>
-        void visitHelper(GCState &gcState, util::IntegerSequence<std::size_t, ArgIndexes...>) const
+        void visit(GCState &gcState) const
         {
-            std::initializer_list<char>{
-                (visitNode(gcState, std::get<ArgIndexes>(*roots)), '\0')...};
-        }
-        virtual void visit(GCState &gcState) const override
-        {
-            visitHelper(gcState, util::MakeIndexSequence<sizeof...(ArgLevels)>());
+            for(std::size_t i = 0; i < rootCount; i++)
+            {
+                roots[i].dispatch(GCRootVisitor(gcState));
+            }
         }
     };
     struct CollectGarbageRunTraceAndSweep
@@ -309,7 +317,7 @@ private:
                     {
                         if(node->gcMark)
                             return;
-                        bool keepNode = std::uniform_int_distribution<int>(0, 10)(randomEngine) > 7;
+                        bool keepNode = std::uniform_int_distribution<int>(0, 9)(randomEngine) >= 7;
                         if(keepNode)
                             node->trace(NodeVisitor(gcState)); // trace so we don't lose children
                         else
@@ -319,13 +327,12 @@ private:
         }
     };
     std::default_random_engine garbageCollectRandomEngine;
-    void collectGarbage(const GCRootsBase &roots);
+    void collectGarbage(const GCRoots &roots);
 
 public:
-    template <std::size_t... ArgLevels>
-    void collectGarbage(const std::tuple<Node<ArgLevels> *...> &roots)
+    void collectGarbage(const DynamicNonowningNodeReference *roots, std::size_t rootCount)
     {
-        collectGarbage(GCRoots<ArgLevels...>(&roots));
+        collectGarbage(GCRoots(roots, rootCount));
     }
 };
 }

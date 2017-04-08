@@ -29,6 +29,7 @@
 #include "../util/constexpr_array.h"
 #include "../util/hash.h"
 #include "../util/enum.h"
+#include "../util/integer_sequence.h"
 #include <type_traits>
 #include <list>
 #include <cstdint>
@@ -207,6 +208,107 @@ struct Node<0> final : public NodeBase<0, Node<0>>
             }
         }
         return true;
+    }
+};
+
+class DynamicNonowningNodeReference final
+{
+private:
+    MemoryManagerNodeBase *node;
+    std::uint8_t nodeLevel;
+
+public:
+    constexpr DynamicNonowningNodeReference() noexcept : node(nullptr), nodeLevel(0)
+    {
+    }
+    constexpr DynamicNonowningNodeReference(std::nullptr_t) noexcept : node(nullptr), nodeLevel(0)
+    {
+    }
+    template <std::size_t Level>
+    constexpr DynamicNonowningNodeReference(Node<Level> *node) noexcept : node(node),
+                                                                 nodeLevel(node ? Level : 0)
+    {
+        static_assert(Level <= MaxLevel, "");
+    }
+    constexpr std::size_t level() const noexcept
+    {
+        return node ? nodeLevel : static_cast<std::size_t>(-1);
+    }
+    constexpr MemoryManagerNodeBase *get() const noexcept
+    {
+        return node;
+    }
+    constexpr explicit operator bool() const noexcept
+    {
+        return node != nullptr;
+    }
+    friend constexpr operator==(const DynamicNonowningNodeReference &a, const DynamicNonowningNodeReference &b) const
+        noexcept
+    {
+        return a.node == b.node;
+    }
+    friend constexpr operator!=(const DynamicNonowningNodeReference &a, const DynamicNonowningNodeReference &b) const
+        noexcept
+    {
+        return a.node != b.node;
+    }
+    friend constexpr operator==(const DynamicNonowningNodeReference &a, std::nullptr_t) const noexcept
+    {
+        return a.node == nullptr;
+    }
+    friend constexpr operator!=(const DynamicNonowningNodeReference &a, std::nullptr_t) const noexcept
+    {
+        return a.node != nullptr;
+    }
+    friend constexpr operator==(std::nullptr_t, const DynamicNonowningNodeReference &b) const noexcept
+    {
+        return nullptr == b.node;
+    }
+    friend constexpr operator!=(std::nullptr_t, const DynamicNonowningNodeReference &b) const noexcept
+    {
+        return nullptr != b.node;
+    }
+
+private:
+    template <typename Fn>
+    static constexpr bool dispatchIsNoexcept(Node<0> *) noexcept
+    {
+        return noexcept(std::declval<Fn>()(static_cast<Node<0> *>(nullptr)))
+               && noexcept(std::declval<Fn>()(nullptr));
+    }
+    template <typename Fn, std::size_t Level>
+    static constexpr bool dispatchIsNoexcept(Node<Level> *) noexcept
+    {
+        return noexcept(std::declval<Fn>()(static_cast<Node<Level> *>(nullptr)))
+               && dispatchIsNoexcept<Fn>(static_cast<Node<Level - 1> *>(nullptr));
+    }
+    template <typename Fn, std::size_t... Levels>
+    void dispatchHelper(Fn &&fn, util::IntegerSequence<std::size_t, Levels...>) const
+        noexcept(dispatchIsNoexcept<Fn>(static_cast<Node<MaxLevel> *>(nullptr)))
+    {
+        if(node == nullptr)
+        {
+            std::forward<Fn>(fn)(nullptr);
+        }
+        else
+        {
+            typedef void (*FnPtrType)(MemoryManagerNodeBase *node, Fn &&fn);
+            static const FnPtrType functions[] = {
+                [](MemoryManagerNodeBase *node, Fn &&fn)
+                {
+                    std::forward<Fn>(fn)(static_cast<Node<Levels> *>(node));
+                }...,
+            };
+            functions[level](node, std::forward<Fn>(fn));
+        }
+    }
+
+public:
+    template <typename Fn>
+    void dispatch(Fn &&fn) const
+        noexcept(dispatchIsNoexcept<Fn>(static_cast<Node<MaxLevel> *>(nullptr)))
+    {
+        dispatchHelper(std::forward<Fn>(fn), util::MakeIndexSequence<LevelCount>());
     }
 };
 

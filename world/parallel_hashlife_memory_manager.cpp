@@ -28,7 +28,7 @@ namespace world
 {
 namespace parallel_hashlife
 {
-void MemoryManager::collectGarbage(const GCRootsBase &roots)
+void MemoryManager::collectGarbage(const GCRoots &roots)
 {
     struct ClearGCMarkAndCountNodes
     {
