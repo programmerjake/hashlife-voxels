@@ -225,8 +225,9 @@ public:
     {
     }
     template <std::size_t Level>
-    constexpr DynamicNonowningNodeReference(Node<Level> *node) noexcept : node(node),
-                                                                 nodeLevel(node ? Level : 0)
+    constexpr DynamicNonowningNodeReference(Node<Level> *node) noexcept
+        : node(node),
+          nodeLevel(node ? Level : 0)
     {
         static_assert(Level <= MaxLevel, "");
     }
@@ -242,29 +243,33 @@ public:
     {
         return node != nullptr;
     }
-    friend constexpr operator==(const DynamicNonowningNodeReference &a, const DynamicNonowningNodeReference &b) const
-        noexcept
+    friend constexpr operator==(const DynamicNonowningNodeReference &a,
+                                const DynamicNonowningNodeReference &b) const noexcept
     {
         return a.node == b.node;
     }
-    friend constexpr operator!=(const DynamicNonowningNodeReference &a, const DynamicNonowningNodeReference &b) const
-        noexcept
+    friend constexpr operator!=(const DynamicNonowningNodeReference &a,
+                                const DynamicNonowningNodeReference &b) const noexcept
     {
         return a.node != b.node;
     }
-    friend constexpr operator==(const DynamicNonowningNodeReference &a, std::nullptr_t) const noexcept
+    friend constexpr operator==(const DynamicNonowningNodeReference &a, std::nullptr_t) const
+        noexcept
     {
         return a.node == nullptr;
     }
-    friend constexpr operator!=(const DynamicNonowningNodeReference &a, std::nullptr_t) const noexcept
+    friend constexpr operator!=(const DynamicNonowningNodeReference &a, std::nullptr_t) const
+        noexcept
     {
         return a.node != nullptr;
     }
-    friend constexpr operator==(std::nullptr_t, const DynamicNonowningNodeReference &b) const noexcept
+    friend constexpr operator==(std::nullptr_t, const DynamicNonowningNodeReference &b) const
+        noexcept
     {
         return nullptr == b.node;
     }
-    friend constexpr operator!=(std::nullptr_t, const DynamicNonowningNodeReference &b) const noexcept
+    friend constexpr operator!=(std::nullptr_t, const DynamicNonowningNodeReference &b) const
+        noexcept
     {
         return nullptr != b.node;
     }
@@ -315,12 +320,67 @@ public:
 #if 1
 #warning finish
 #else
-#error finish
-template <std::size_t OutputLevel = 0, typename OutputArray, std::size_t InputLevel>
-void getElements(OutputArray &&outputArray, util::Vector3I32 origin) noexcept(noexcept(
-    outputArray[static_cast<std::int32_t>(0)][static_cast<std::int32_t>(
-        0)][static_cast<std::int32_t>(0)] = static_cast<typename Node<OutputLevel>::KeyElement>(0)))
+template <std::size_t OutputLevel,
+          bool SetAllOutputElements = true,
+          typename OutputArray,
+          std::size_t InputLevel>
+void getElements(OutputArray &&outputArray,
+                 util::Vector3I32 outputArraySize,
+                 Node<InputLevel> *input,
+                 util::Vector3I32 origin) //
+    noexcept(
+        noexcept(outputArray[static_cast<std::int32_t>(0)][static_cast<std::int32_t>(
+                     0)][static_cast<std::int32_t>(0)] = typename Node<OutputLevel>::KeyElement()))
 {
+    origin = static_cast<util::Vector3I32>(static_cast<util::Vector3U32>(origin)
+                                           - static_cast<util::Vector3U32>(origin)
+                                                 % util::Vector3U32(Node<InputLevel>::halfSize));
+    constexpr std::int32_t inputHalfSize = Node<InputLevel>::halfSize;
+    constexpr std::int32_t outputHalfSize = Node<OutputLevel>::halfSize;
+    if(SetAllOutputElements)
+    {
+        for(util::Vector3I32 worldPosition2 = origin, arrayPosition(0);
+            arrayPosition.x < outputArraySize.x;
+            worldPosition2.x += outputHalfSize, arrayPosition.x++)
+        {
+            if(worldPosition2.x >= -inputHalfSize && worldPosition2.x < inputHalfSize)
+            {
+                worldPosition2.x = inputHalfSize;
+                arrayPosition.x = (worldPosition2.x - origin.x) / outputHalfSize;
+                if(arrayPosition.x >= outputArraySize.x)
+                    break;
+            }
+            for(worldPosition2.y = origin.y, arrayPosition.y = 0;
+                arrayPosition.y < outputArraySize.y;
+                worldPosition2.y += outputHalfSize, arrayPosition.y++)
+            {
+                if(worldPosition2.y >= -inputHalfSize && worldPosition2.y < inputHalfSize)
+                {
+                    worldPosition2.y = inputHalfSize;
+                    arrayPosition.y = (worldPosition2.y - origin.y) / outputHalfSize;
+                    if(arrayPosition.y >= outputArraySize.y)
+                        break;
+                }
+                for(worldPosition2.z = origin.z, arrayPosition.z = 0;
+                    arrayPosition.z < outputArraySize.z;
+                    worldPosition2.z += outputHalfSize, arrayPosition.z++)
+                {
+                    if(worldPosition2.z >= -inputHalfSize && worldPosition2.z < inputHalfSize)
+                    {
+                        worldPosition2.z = inputHalfSize;
+                        arrayPosition.z = (worldPosition2.z - origin.z) / outputHalfSize;
+                        if(arrayPosition.z >= outputArraySize.z)
+                            break;
+                    }
+                    outputArray[arrayPosition.x][arrayPosition.y][arrayPosition.z] =
+                        typename Node<OutputLevel>::KeyElement();
+                }
+            }
+        }
+    }
+#error finish
+    getBlocksImplementation(
+        node, std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
 }
 #endif
 }
