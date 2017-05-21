@@ -329,7 +329,8 @@ struct ForEachElementHelper<Level, Fn, Level>
     static void forEachElement(Fn &&fn,
                                Node<Level> *node,
                                util::Vector3U32 startPositionOffseted,
-                               util::Vector3U32 endPositionOffseted) noexcept(isNoexcept)
+                               util::Vector3U32 endPositionOffseted,
+                               util::Vector3U32 outputBasePosition) noexcept(isNoexcept)
     {
         constexpr std::uint32_t nodeSize = Node<Level>::size;
         constexpr std::uint32_t nodeHalfSize = Node<Level>::halfSize;
@@ -351,7 +352,8 @@ struct ForEachElementHelper<Level, Fn, Level>
                        || offsetPosition.z >= endPositionOffseted.z)
                         continue;
                     const auto constPosition =
-                        static_cast<util::Vector3I32>(offsetPosition) - Node<Level>::positionOffset;
+                        static_cast<util::Vector3I32>(offsetPosition + outputBasePosition)
+                        - Node<Level>::positionOffset;
                     util::Vector3U32 keyIndices =
                         Node<Level>::getKeyIndicesFromOffsetPosition(offsetPosition);
                     const auto &constElement = node->key[keyIndices.x][keyIndices.y][keyIndices.z];
@@ -372,7 +374,8 @@ struct ForEachElementHelper
     static void forEachElement(Fn &&fn,
                                Node<InputLevel> *node,
                                util::Vector3U32 startPositionOffseted,
-                               util::Vector3U32 endPositionOffseted) noexcept(isNoexcept)
+                               util::Vector3U32 endPositionOffseted,
+                               util::Vector3U32 outputBasePosition) noexcept(isNoexcept)
     {
         constexpr std::uint32_t nodeSize = Node<InputLevel>::size;
         constexpr std::uint32_t nodeHalfSize = Node<InputLevel>::halfSize;
@@ -403,7 +406,8 @@ struct ForEachElementHelper
                         std::forward<Fn>(fn),
                         child,
                         childStartPositionOffseted,
-                        childEndPositionOffseted);
+                        childEndPositionOffseted,
+                        outputBasePosition + offsetPosition);
                 }
             }
         }
@@ -475,8 +479,11 @@ void forEachElement(Fn &&fn,
         static_cast<util::Vector3U32>(startPosition + Node<InputLevel>::positionOffset);
     auto endPositionOffseted =
         static_cast<util::Vector3U32>(endPosition + Node<InputLevel>::positionOffset);
-    ForEachElementHelper<OutputLevel, Fn, InputLevel>::forEachElement(
-        std::forward<Fn>(fn), node, startPositionOffseted, endPositionOffseted);
+    ForEachElementHelper<OutputLevel, Fn, InputLevel>::forEachElement(std::forward<Fn>(fn),
+                                                                      node,
+                                                                      startPositionOffseted,
+                                                                      endPositionOffseted,
+                                                                      util::Vector3U32(0));
 }
 
 template <std::size_t OutputLevel,
