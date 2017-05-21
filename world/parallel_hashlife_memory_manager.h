@@ -334,6 +334,7 @@ public:
     {
         collectGarbage(GCRoots(roots, rootCount));
     }
+#warning implement allocate nodes function
 };
 }
 }

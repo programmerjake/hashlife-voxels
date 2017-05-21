@@ -231,6 +231,12 @@ public:
     {
         static_assert(Level <= MaxLevel, "");
     }
+    constexpr explicit DynamicNonowningNodeReference(MemoryManagerNodeBase *node,
+                                                     std::size_t nodeLevel) noexcept
+        : node(node),
+          nodeLevel(node ? (constexprAssert(nodeLevel <= MaxLevel), nodeLevel) : 0)
+    {
+    }
     constexpr std::size_t level() const noexcept
     {
         return node ? nodeLevel : static_cast<std::size_t>(-1);
