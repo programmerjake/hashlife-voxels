@@ -93,7 +93,7 @@ struct NodeBase : public MemoryManagerNodeBase
     static constexpr util::Vector3U32 getChildOffsetPositionFromOffsetPosition(
         util::Vector3U32 offsetPosition) noexcept
     {
-        return util::Vector3U32(offsetPosition >> util::Vector3U32(1));
+        return util::Vector3U32(offsetPosition & util::Vector3U32(halfSize - 1));
     }
     Key key;
     block::BlockSummary blockSummary;
@@ -317,72 +317,200 @@ public:
     }
 };
 
-#if 1
-#warning finish
-#else
+template <std::size_t OutputLevel, typename Fn, std::size_t InputLevel>
+struct ForEachElementHelper;
+
+template <std::size_t Level, typename Fn>
+struct ForEachElementHelper<Level, Fn, Level>
+{
+    static constexpr bool isNoexcept =
+        noexcept(std::declval<Fn>()(std::declval<const util::Vector3I32 &>(),
+                                    std::declval<const typename Node<Level>::KeyElement &>()));
+    static void forEachElement(Fn &&fn,
+                               Node<Level> *node,
+                               util::Vector3U32 startPositionOffseted,
+                               util::Vector3U32 endPositionOffseted) noexcept(isNoexcept)
+    {
+        constexpr std::uint32_t nodeSize = Node<Level>::size;
+        constexpr std::uint32_t nodeHalfSize = Node<Level>::halfSize;
+        for(util::Vector3U32 offsetPosition(0); offsetPosition.x < nodeSize;
+            offsetPosition.x += nodeHalfSize)
+        {
+            if(offsetPosition.x < startPositionOffseted.x
+               || offsetPosition.x >= endPositionOffseted.x)
+                continue;
+            for(offsetPosition.y = 0; offsetPosition.y < nodeSize; offsetPosition.y += nodeHalfSize)
+            {
+                if(offsetPosition.y < startPositionOffseted.y
+                   || offsetPosition.y >= endPositionOffseted.y)
+                    continue;
+                for(offsetPosition.z = 0; offsetPosition.z < nodeSize;
+                    offsetPosition.z += nodeHalfSize)
+                {
+                    if(offsetPosition.z < startPositionOffseted.z
+                       || offsetPosition.z >= endPositionOffseted.z)
+                        continue;
+                    const auto constPosition =
+                        static_cast<util::Vector3I32>(offsetPosition) - Node<Level>::positionOffset;
+                    util::Vector3U32 keyIndices =
+                        Node<Level>::getKeyIndicesFromOffsetPosition(offsetPosition);
+                    const auto &constElement = node->key[keyIndices.x][keyIndices.y][keyIndices.z];
+                    std::forward<Fn>(fn)(constPosition, constElement);
+                }
+            }
+        }
+    }
+};
+
+template <std::size_t OutputLevel, typename Fn, std::size_t InputLevel>
+struct ForEachElementHelper
+{
+    static_assert(OutputLevel < InputLevel, "");
+    static constexpr bool isNoexcept = noexcept(
+        std::declval<Fn>()(std::declval<const util::Vector3I32 &>(),
+                           std::declval<const typename Node<OutputLevel>::KeyElement &>()));
+    static void forEachElement(Fn &&fn,
+                               Node<InputLevel> *node,
+                               util::Vector3U32 startPositionOffseted,
+                               util::Vector3U32 endPositionOffseted) noexcept(isNoexcept)
+    {
+        constexpr std::uint32_t nodeSize = Node<InputLevel>::size;
+        constexpr std::uint32_t nodeHalfSize = Node<InputLevel>::halfSize;
+        for(util::Vector3U32 offsetPosition(0); offsetPosition.x < nodeSize;
+            offsetPosition.x += nodeHalfSize)
+        {
+            if(offsetPosition.x < startPositionOffseted.x
+               || offsetPosition.x >= endPositionOffseted.x)
+                continue;
+            for(offsetPosition.y = 0; offsetPosition.y < nodeSize; offsetPosition.y += nodeHalfSize)
+            {
+                if(offsetPosition.y < startPositionOffseted.y
+                   || offsetPosition.y >= endPositionOffseted.y)
+                    continue;
+                for(offsetPosition.z = 0; offsetPosition.z < nodeSize;
+                    offsetPosition.z += nodeHalfSize)
+                {
+                    if(offsetPosition.z < startPositionOffseted.z
+                       || offsetPosition.z >= endPositionOffseted.z)
+                        continue;
+                    util::Vector3U32 keyIndices =
+                        Node<InputLevel>::getKeyIndicesFromOffsetPosition(offsetPosition);
+                    auto *child = node->key[keyIndices.x][keyIndices.y][keyIndices.z];
+                    auto childStartPositionOffseted =
+                        max(startPositionOffseted, offsetPosition) - offsetPosition;
+                    auto childEndPositionOffseted = endPositionOffseted - offsetPosition;
+                    ForEachElementHelper<OutputLevel, Fn, InputLevel - 1>::forEachElement(
+                        std::forward<Fn>(fn),
+                        child,
+                        childStartPositionOffseted,
+                        childEndPositionOffseted);
+                }
+            }
+        }
+    }
+};
+
+template <std::size_t OutputLevel,
+          bool IncludeAllOutputElements = true,
+          typename Fn,
+          std::size_t InputLevel>
+void forEachElement(Fn &&fn,
+                    Node<InputLevel> *node,
+                    util::Vector3I32 startPosition,
+                    util::Vector3I32 endPosition) //
+    noexcept(ForEachElementHelper<OutputLevel, Fn, InputLevel>::isNoexcept)
+{
+    startPosition =
+        static_cast<util::Vector3I32>(static_cast<util::Vector3U32>(startPosition)
+                                      - static_cast<util::Vector3U32>(startPosition)
+                                            % util::Vector3U32(Node<OutputLevel>::halfSize));
+    endPosition =
+        static_cast<util::Vector3I32>(static_cast<util::Vector3U32>(endPosition)
+                                      - static_cast<util::Vector3U32>(endPosition)
+                                            % util::Vector3U32(Node<OutputLevel>::halfSize));
+    constexpr std::int32_t inputNodeHalfSize = Node<InputLevel>::halfSize;
+    constexpr std::int32_t outputNodeHalfSize = Node<OutputLevel>::halfSize;
+    if(IncludeAllOutputElements)
+    {
+        for(util::Vector3I32 position = startPosition; position.x < endPosition.x;
+            position.x += outputNodeHalfSize)
+        {
+            if(position.x >= -inputNodeHalfSize && position.x < inputNodeHalfSize)
+            {
+                position.x = inputNodeHalfSize;
+                if(position.x >= endPosition.x)
+                    break;
+            }
+            for(position.y = startPosition.y; position.y < endPosition.y;
+                position.y += outputNodeHalfSize)
+            {
+                if(position.y >= -inputNodeHalfSize && position.y < inputNodeHalfSize)
+                {
+                    position.y = inputNodeHalfSize;
+                    if(position.y >= endPosition.y)
+                        break;
+                }
+                for(position.z = startPosition.z; position.z < endPosition.z;
+                    position.z += outputNodeHalfSize)
+                {
+                    if(position.z >= -inputNodeHalfSize && position.z < inputNodeHalfSize)
+                    {
+                        position.z = inputNodeHalfSize;
+                        if(position.z >= endPosition.z)
+                            break;
+                    }
+                    const auto constPosition = position;
+                    const typename Node<OutputLevel>::KeyElement constElement;
+                    std::forward<Fn>(fn)(constPosition, constElement);
+                }
+            }
+        }
+    }
+    startPosition = max(startPosition, util::Vector3I32(-inputNodeHalfSize));
+    endPosition = min(endPosition, util::Vector3I32(inputNodeHalfSize));
+    if(startPosition.x >= endPosition.x || startPosition.y >= endPosition.y
+       || startPosition.z >= endPosition.z)
+        return;
+    auto startPositionOffseted =
+        static_cast<util::Vector3U32>(startPosition + Node<InputLevel>::positionOffset);
+    auto endPositionOffseted =
+        static_cast<util::Vector3U32>(endPosition + Node<InputLevel>::positionOffset);
+    ForEachElementHelper<OutputLevel, Fn, InputLevel>::forEachElement(
+        std::forward<Fn>(fn), node, startPositionOffseted, endPositionOffseted);
+}
+
 template <std::size_t OutputLevel,
           bool SetAllOutputElements = true,
           typename OutputArray,
           std::size_t InputLevel>
 void getElements(OutputArray &&outputArray,
-                 util::Vector3I32 outputArraySize,
-                 Node<InputLevel> *input,
-                 util::Vector3I32 origin) //
-    noexcept(
-        noexcept(outputArray[static_cast<std::int32_t>(0)][static_cast<std::int32_t>(
-                     0)][static_cast<std::int32_t>(0)] = typename Node<OutputLevel>::KeyElement()))
+                 util::Vector3U32 outputSize,
+                 util::Vector3U32 outputStartIndex,
+                 Node<InputLevel> *inputNode,
+                 util::Vector3I32 inputStartPosition) //
+    noexcept(noexcept(std::declval<OutputArray>()[static_cast<std::int32_t>(
+                          0)][static_cast<std::int32_t>(0)][static_cast<std::int32_t>(0)] =
+                          std::declval<const typename Node<OutputLevel>::KeyElement &>()))
 {
-    origin = static_cast<util::Vector3I32>(static_cast<util::Vector3U32>(origin)
-                                           - static_cast<util::Vector3U32>(origin)
-                                                 % util::Vector3U32(Node<InputLevel>::halfSize));
-    constexpr std::int32_t inputHalfSize = Node<InputLevel>::halfSize;
-    constexpr std::int32_t outputHalfSize = Node<OutputLevel>::halfSize;
-    if(SetAllOutputElements)
-    {
-        for(util::Vector3I32 worldPosition2 = origin, arrayPosition(0);
-            arrayPosition.x < outputArraySize.x;
-            worldPosition2.x += outputHalfSize, arrayPosition.x++)
+    constexpr bool isNoexcept =
+        noexcept(std::declval<OutputArray>()[static_cast<std::int32_t>(
+                     0)][static_cast<std::int32_t>(0)][static_cast<std::int32_t>(0)] =
+                     std::declval<const typename Node<OutputLevel>::KeyElement &>());
+    forEachElement<OutputLevel, SetAllOutputElements>(
+        [&outputArray, outputStartIndex, inputStartPosition ](
+            util::Vector3I32 position,
+            const typename Node<OutputLevel>::KeyElement &keyElement) noexcept(isNoexcept) //
         {
-            if(worldPosition2.x >= -inputHalfSize && worldPosition2.x < inputHalfSize)
-            {
-                worldPosition2.x = inputHalfSize;
-                arrayPosition.x = (worldPosition2.x - origin.x) / outputHalfSize;
-                if(arrayPosition.x >= outputArraySize.x)
-                    break;
-            }
-            for(worldPosition2.y = origin.y, arrayPosition.y = 0;
-                arrayPosition.y < outputArraySize.y;
-                worldPosition2.y += outputHalfSize, arrayPosition.y++)
-            {
-                if(worldPosition2.y >= -inputHalfSize && worldPosition2.y < inputHalfSize)
-                {
-                    worldPosition2.y = inputHalfSize;
-                    arrayPosition.y = (worldPosition2.y - origin.y) / outputHalfSize;
-                    if(arrayPosition.y >= outputArraySize.y)
-                        break;
-                }
-                for(worldPosition2.z = origin.z, arrayPosition.z = 0;
-                    arrayPosition.z < outputArraySize.z;
-                    worldPosition2.z += outputHalfSize, arrayPosition.z++)
-                {
-                    if(worldPosition2.z >= -inputHalfSize && worldPosition2.z < inputHalfSize)
-                    {
-                        worldPosition2.z = inputHalfSize;
-                        arrayPosition.z = (worldPosition2.z - origin.z) / outputHalfSize;
-                        if(arrayPosition.z >= outputArraySize.z)
-                            break;
-                    }
-                    outputArray[arrayPosition.x][arrayPosition.y][arrayPosition.z] =
-                        typename Node<OutputLevel>::KeyElement();
-                }
-            }
-        }
-    }
-#error finish
-    getBlocksImplementation(
-        node, std::forward<BlocksArray>(blocksArray), worldPosition, arrayPosition, size);
+            auto offsetPosition = static_cast<util::Vector3U32>(position - inputStartPosition);
+            const auto index =
+                offsetPosition / util::Vector3U32(Node<OutputLevel>::halfSize) + outputStartIndex;
+            std::forward<OutputArray>(outputArray)[index.x][index.y][index.z] = keyElement;
+        },
+        inputStartPosition,
+        inputStartPosition
+            + static_cast<util::Vector3I32>(outputSize)
+                  * util::Vector3I32(Node<OutputLevel>::halfSize));
 }
-#endif
 }
 }
 }
