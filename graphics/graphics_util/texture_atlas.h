@@ -23,6 +23,7 @@
 #define GRAPHICS_GRAPHICS_UTIL_TEXTURE_ATLAS_H_
 
 #include "../texture.h"
+#include "../image.h"
 #include <type_traits>
 #include <cstdint>
 #include <vector>

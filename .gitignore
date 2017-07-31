@@ -9,3 +9,4 @@
 /Debug AddressSanitizer/
 /Debug NoAssert/
 /perf.data
+/build*
